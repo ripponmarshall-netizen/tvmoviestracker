@@ -1,12 +1,12 @@
-# TV & Movie Tracker
+# pree-it
 
-A small installable web app (PWA) for keeping track of the shows and movies you're **watching**, **want to watch** and have **watched**. Three tabs along the bottom:
+*Pree* (Jamaican): to watch closely. A small installable web app (PWA) for keeping track of the shows and movies you're **watching**, **want to watch** and have **watched**. Three tabs along the bottom:
 
-- **Watching**: what's up next from what you've watched in the last 30 days (the next episode, rolling on to the next season), shows you've put on the go but not started, your watchlist, titles like your recent ones, what you've finished lately and, folded away at the bottom, an archive of what you haven't watched in a while. Ticking an episode of an archived show brings it back to Up Next, and so does a new episode airing.
+- **Watching**: *Up Next*, the next episode of what you've watched in the last 30 days (rolling on to the next season); *Not Started*, shows with no episode ticked yet; *Caught Up*, shows you've seen everything out of; your watchlist, titles like your recent ones, what you've finished lately and *On Hold*, what you haven't watched in a while. Each list folds away under its header, and its **•••** menu acts on all its shows (mark all caught up, move all to Watched or the Watchlist). Every row has a **•••** menu too: tick the next episode, *I'm Caught Up* (jump to the latest episode out), choose the episode you're on, move or remove it.
 - **Explore**: what's trending and popular on TMDB, for shows, movies or both, with search.
-- **Profile**: your profile picture (tap it to change it), total watch time split by shows and movies, top genres, awards for milestones, and your library's lists.
+- **Profile**: your username and picture (Edit Profile), sync status and library counts, total watch time split by shows and movies, top genres, awards for milestones, your library's lists (each with search and a sort dropdown), Settings and CSV import.
 
-Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations, sheets you can pull down to close, and a night-sky loading screen whose logo leaps into the header.
+Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations and sheets you can pull down to close. The loading screen is a strip of film (its frames your own posters) rolling up the screen; once the app is ready it whooshes off the top, the logo and name glide into the header and the page rises in behind it.
 
 There's no build step. React and Babel load from a CDN, and the `.jsx` files are compiled in the browser, so you can edit any file on GitHub (even from a phone) and the change is live once Pages redeploys.
 
@@ -29,7 +29,7 @@ The key is stored on the device and, once you're signed in, in your profile, so 
 
 This repo already points at its Supabase project, with the schema applied, so only steps 2 and 3 are left to do. For a fresh project, do all four.
 
-1. Run [`supabase/schema.sql`](supabase/schema.sql) in your project's **SQL Editor**. It only adds two `tvt_`-prefixed tables with row-level security, so it can share a project with other apps. It's safe to run again, and running it again is how an existing project picks up new columns (v1.5 added `avatar`, for the profile picture; until it's there the picture stays on each device and everything else syncs as usual).
+1. Run [`supabase/schema.sql`](supabase/schema.sql) in your project's **SQL Editor**. It only adds two `tvt_`-prefixed tables with row-level security, so it can share a project with other apps. It's safe to run again, and running it again is how an existing project picks up new columns (v1.5 added `avatar`, for the profile picture, and v1.6 `username`; until a column is there that setting stays on each device and everything else syncs as usual).
 2. **Authentication → Users → Add user → Create new user**: your email and a password, with *Auto Confirm User* ticked.
 3. **Authentication → Sign In / Providers**: turn off *Allow new users to sign up*, so nobody else can make an account in your project.
 4. Put the project URL and its **publishable** key (Project Settings → API Keys) at the top of `cloud.jsx`. Both are meant to be public; row-level security is what protects the data.
@@ -40,16 +40,16 @@ Then **Settings → Account → Sign in**. Sign-in uses a password rather than a
 
 | File | What it holds |
 | --- | --- |
-| `index.html` | Theme applied before first paint, the loading screen and its hand-off into the header, script tags. If a script fails, the error appears on the loading screen. |
+| `index.html` | Theme applied before first paint, the film-strip loading screen and its hand-off into the header, script tags. If a script fails, the error appears on the loading screen. |
 | `styles.css` | Colour tokens (dark and light), spring easings, and every animation. |
-| `components.jsx` | Shared building blocks: `Card`, `SegToggle`, button styles, `ScreenTitle`, `SectionHeader`, `ProgressBar`, `ModalFrame` (sheets and dialogs), `PullToRefresh`, `showToast`, `askConfirm`, `AnimatedRow`, `Collapse`, icons. |
-| `tmdb.jsx` | TMDB search, image URLs, title details (cached on the device), the Explore lists, and the episode maths (`nextEpisode`, `episodesWatched`, `airedEpisodes`). |
-| `cloud.jsx` | Supabase config, sign-in, the profile (TMDB key, profile picture) and sync. |
-| `detail.jsx` | The title sheet (`TitleSheet`): artwork, the facts strip, status tiles, progress, rating, more like this. |
-| `browse.jsx` | The Watching and Explore screens (`watchingGroup` decides Up Next, Not Started or Archived), and the poster cards and shelves they're built from. |
-| `profile.jsx` | The Profile screen: the profile picture (`avatarFromFile`, `AvatarPicker`), `watchStats`, the `BADGES` list, the library rows. |
+| `components.jsx` | Shared building blocks: `Card`, `SegToggle`, button styles, `ScreenTitle`, `SectionHeader`, `ProgressBar`, `ModalFrame` (sheets and dialogs), `showMenu` (action sheets), `FoldSection` and `useFold` (fold-away sections), `Picker` (a dropdown), `PullToRefresh`, `showToast`, `askConfirm`, `AnimatedRow`, `Collapse`, icons. |
+| `tmdb.jsx` | TMDB search, image URLs, title details (cached on the device), the Explore lists, and the episode maths (`nextEpisode`, `episodesWatched`, `airedEpisodes`, `latestAired`). |
+| `cloud.jsx` | Supabase config, sign-in, the profile (TMDB key, username, profile picture) and sync. |
+| `detail.jsx` | The title sheet (`TitleSheet`): artwork, the facts strip, status tiles, progress (with `EpisodePicker`, the season and episode dropdowns), rating, more like this. |
+| `browse.jsx` | The Watching and Explore screens (`watchingGroup` decides Up Next, Not Started, Caught Up or On Hold), and the poster cards and shelves they're built from. |
+| `profile.jsx` | The Profile screen: the username (`cleanUsername`, `ProfileSheet`), the profile picture (`avatarFromFile`, `AvatarPicker`), `watchStats`, the `BADGES` list, the library rows. |
 | `importcsv.jsx` | CSV import: the parser, column matching (`CSV_HEADS`), merging into the library (`planImport`), matching titles on TMDB afterwards, and the import sheet. |
-| `app.jsx` | The data model, routing between tabs, the list screens, add/edit sheet, settings and tab bar. |
+| `app.jsx` | The data model, routing between tabs, the "•••" menus (`itemMenu`, `bulkMenu`), catching up (`catchUp`), the list screens, add/edit sheet, settings and tab bar. |
 | `supabase/schema.sql` | The tables and row-level security for sync. |
 | `sw.js` | Offline support. The app's own files are network-first, so a deploy shows up on the next reload. TMDB posters are cache-first (the latest 600). |
 | `check.js` | CI check: every `.jsx` file compiles, is precached and declares no name another file does. Runs on each push. |
@@ -88,13 +88,15 @@ Signed in, each title is also a row in `tvt_items`, with the whole item in a `da
   note,
   tmdbId, poster, year, // from TMDB search; null / "" for titles typed in
   added, updated,    // ISO dates; `updated` decides which edit wins a sync
-  lastWatched        // ISO date you last moved it on ("" = never); Up Next vs Archived
+  lastWatched        // ISO date you last moved it on ("" = never); Up Next vs On Hold
 }
 ```
 
-### Up Next, Not Started and Archived
+### Up Next, Not Started, Caught Up and On Hold
 
-A show in Watching still at S1 · E0 goes in *Not Started*. Anything else is in *Up Next* if you've watched it or added it in the last 30 days (`RECENT_DAYS` in `browse.jsx`), or if an episode has aired in that time that you haven't seen; otherwise it's *Archived*. `lastWatched` is set when an edit moves a title on: an episode ticked or stepped forward, or the title moved into Watching. Ratings, notes, imports of a backup and sync leave it alone. Titles saved before v1.5 count their last edit. A CSV watch history sets it from the latest date in the file.
+A show in Watching still at S1 · E0 goes in *Not Started*: no episode is ticked yet (an import that only had a show's name, not its progress, lands here). A show where TMDB has no aired episode after yours is *Caught Up*. Anything else is in *Up Next* if you've watched it or added it in the last 30 days (`RECENT_DAYS` in `browse.jsx`), or if an episode has aired in that time that you haven't seen; otherwise it's *On Hold*. Not Started lists the shows on air most lately first, Caught Up the next episode soonest.
+
+*I'm Caught Up* (a row's ••• menu, the title sheet, or a section's ••• for all of it) sets a show to its latest episode out, per TMDB; a show that has ended goes to Watched. It needs the show linked to TMDB and a TMDB key. A CSV status of "Up to date" or "Caught up" does the same once the import's titles are linked. `lastWatched` is set when an edit moves a title on: an episode ticked or stepped forward, or the title moved into Watching. Ratings, notes, imports of a backup and sync leave it alone. Titles saved before v1.5 count their last edit. A CSV watch history sets it from the latest date in the file.
 
 The profile picture is cropped square and shrunk to 256px on the device, then kept as a small JPEG (about 30 KB) in `tvt:v1` and, signed in, in the `avatar` column of `tvt_profiles`. Profile settings sync by a three-way merge against what each device last agreed with the server, so clearing one (the picture or the TMDB key) on one device clears it on the others.
 
@@ -104,6 +106,7 @@ A watched movie counts its TMDB runtime. A show counts the episodes up to your p
 
 ## Adding features
 
+- **A new "•••" action**: add an entry to the `actions` in `itemMenu` (one title) or `bulkMenu` (a Watching section) in `app.jsx`.
 - **A new field** (e.g. platform): give it a default in `normaliseItem`, then add an input to `ItemSheet`. Old saved data, backups and synced rows pick up the default automatically; the database needs no change.
 - **A new status** (e.g. *Dropped*): add an entry to `STATUSES`. That gives it a list screen (Profile → Library), a status tile on the title sheet and a place in the edit sheet.
 - **A new tab**: add it to `TABS` in `app.jsx` and a branch where `App` picks the screen.
@@ -119,6 +122,7 @@ A watched movie counts its TMDB runtime. A show counts the episodes up to your p
 
 | Class / helper | Effect |
 | --- | --- |
+| `FoldSection` / `useFold` | A section that folds away under its header, with a turning chevron; remembered on the device (`tvt:fold:v1`). |
 | `.tvt-view > *` | Blocks on a screen rise in one after another (key the screen to replay it). |
 | `.tvt-view.tvt-push` | The same, sliding in from the right (a list pushed over a tab). |
 | `.tvt-shelf` | A row of cards that scrolls sideways, edge to edge, snapping card by card. |

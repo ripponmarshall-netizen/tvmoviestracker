@@ -11,7 +11,7 @@ function findInLibrary(items, t) {
     || null;
 }
 
-function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onEdit, onDelete, onClose }) {
+function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onCatchUp, onEdit, onDelete, onClose }) {
   const { ref, closing, close } = useModalDismiss(onClose);
   // A title from "More Like This" opens in the same sheet; Back returns.
   const [stack, setStack] = useStateD([target]);
@@ -90,7 +90,7 @@ function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onEd
         </div>
 
         {item && tv && item.status === "watching" && (
-          <ProgressSection item={item} d={d} onAdvance={onAdvance} onPatch={onPatch} />
+          <ProgressSection item={item} d={d} onAdvance={onAdvance} onPatch={onPatch} onCatchUp={onCatchUp} />
         )}
 
         {item && (
@@ -204,12 +204,15 @@ function DetailSection({ title, children }) {
   );
 }
 
-/* Up next, progress through what's aired, a tick for the next episode
-   and steppers to set it by hand. */
-function ProgressSection({ item, d, onAdvance, onPatch }) {
+/* Up next, progress through what's aired, a tick for the next episode,
+   "caught up" (straight to the latest episode out) and dropdowns to pick
+   the season and episode you're on. */
+function ProgressSection({ item, d, onAdvance, onPatch, onCatchUp }) {
   const info = upNextInfo(item, d);
   const aired = airedEpisodes(d);
   const watched = episodesWatched(item, d);
+  const latest = latestAired(d);
+  const behind = latest && (item.season < latest.season || (item.season === latest.season && item.episode < latest.episode));
   return (
     <DetailSection title="Your Progress">
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -231,13 +234,44 @@ function ProgressSection({ item, d, onAdvance, onPatch }) {
           <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 6 }}>{Math.min(watched, aired)} of {plural(aired, "episode")} watched</div>
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
-        {/* Moving on to a new season starts it at episode 0. */}
-        <Stepper label="Season" value={item.season} min={1} max={999}
-          onChange={(v) => onPatch(item.id, { season: v, episode: v > item.season ? 0 : item.episode })} />
-        <Stepper label="Episode" value={item.episode} min={0} max={9999} onChange={(v) => onPatch(item.id, { episode: v })} />
-      </div>
+      <div className="label" style={{ margin: "16px 0 6px" }}>Last episode watched</div>
+      <EpisodePicker season={item.season} episode={item.episode} d={d} onChange={(p) => onPatch(item.id, p)} />
+      {behind && (
+        <button type="button" onClick={() => onCatchUp(item.id)} style={{ ...ghostBtn(), width: "100%", marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <ForwardIcon size={16} />I'm Caught Up
+          <span className="mono" style={{ color: "var(--ink-dim)" }}>· S{latest.season} E{latest.episode}</span>
+        </button>
+      )}
     </DetailSection>
+  );
+}
+
+const range = (from, to) => Array.from({ length: Math.max(0, to - from + 1) }, (_, i) => from + i);
+
+/* EpisodePicker — two dropdowns: the season, and the last episode watched
+   in it (0: none of it yet). With TMDB details they list the show's real
+   seasons and episodes, marking ones not out yet; without, a generous
+   range. Moving on to a later season starts it at episode 0; going back
+   keeps the episode, within that season's length. onChange gets
+   { season, episode }. */
+function EpisodePicker({ season, episode, d, onChange }) {
+  const known = d?.seasons ? Object.keys(d.seasons).map(Number).sort((a, b) => a - b) : [];
+  const seasons = [...new Set([...(known.length ? known : range(1, Math.max(15, season + 3))), season])].sort((a, b) => a - b);
+  const count = (s) => d?.seasons?.[s] || 0;
+  const eps = range(0, Math.max(count(season) || 40, episode));
+  const out = (s, e) => d?.last && (s > d.last[0] || (s === d.last[0] && e > d.last[1]));
+  const seasonOpts = seasons.map((s) => ({ v: s, short: `Season ${s}`, l: `Season ${s}${count(s) ? ` · ${plural(count(s), "episode")}` : ""}${out(s, 1) ? " (not out yet)" : ""}` }));
+  const epOpts = eps.map((e) => ({ v: e, short: e ? `Episode ${e}` : "None yet", l: e ? `Episode ${e}${out(season, e) ? " (not out yet)" : ""}` : "None of this season yet" }));
+  const pickSeason = (v) => {
+    const s = Number(v);
+    if (s === season) return;
+    onChange({ season: s, episode: s > season ? 0 : Math.min(episode, count(s) || episode) });
+  };
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <Picker label="Season" value={season} options={seasonOpts} onChange={pickSeason} />
+      <Picker label="Episode" value={episode} options={epOpts} onChange={(v) => onChange({ season, episode: Number(v) })} />
+    </div>
   );
 }
 
@@ -256,4 +290,4 @@ function Overview({ text }) {
   );
 }
 
-Object.assign(window, { findInLibrary, TitleSheet });
+Object.assign(window, { findInLibrary, TitleSheet, EpisodePicker });

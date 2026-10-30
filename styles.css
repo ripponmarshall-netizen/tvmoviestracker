@@ -1,4 +1,4 @@
-/* TV & Movie Tracker — base styles (theme tokens, motion, chrome).
+/* pree-it — base styles (theme tokens, motion, chrome).
    Component-level styling is inline in the React files. The tokens and
    springs are the Night Shift Calculator's, so the two apps feel alike. */
 
@@ -289,11 +289,12 @@ button:focus-visible {
 }
 
 /* ----- Loading screen (index.html) -----
-   A night sky while the scripts load. The app icon drops in under gravity
-   and bounces to rest, its screen draws, the antenna springs up and the
-   play button pops; the title's letters spring up one after another. Once
-   the app has mounted (tvtSplashDone) the logo and title leap into the
-   header while the page drops in beneath them. */
+   A strip of film runs up the screen, tilted, its frames your own posters
+   (stand-in colours before you have any), while the scripts load. The
+   logo pops in over it and the name's letters spring up one by one. Once
+   the app has mounted (tvtSplashDone) the film whooshes up and off the
+   top of the screen, the logo and name glide into the header, and the
+   page rises in behind the film. */
 .tvt-splash {
   position: fixed;
   inset: 0;
@@ -303,21 +304,21 @@ button:focus-visible {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
   padding: 24px;
   transition:
     opacity 0.45s ease,
     visibility 0s linear 0.45s;
 }
-/* The backdrop is its own layer, so clearing it while the logo flies is a
+/* The backdrop is its own layer, so clearing it while the film leaves is a
    GPU blend, not a repaint of the whole screen every frame. */
 .tvt-splash::before {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: -2;
   background: var(--bg);
-  transition: opacity 0.5s ease;
+  transition: opacity 0.55s ease 0.15s;
 }
 .tvt-splash.is-flying {
   pointer-events: none;
@@ -330,145 +331,179 @@ button:focus-visible {
   visibility: hidden;
   pointer-events: none;
 }
-/* Night sky: an accent glow on the horizon, a moon and twinkling stars.
-   Light theme keeps only the glow. */
-.tvt-sky {
+
+/* The film: tilted (.tvt-film), sliding in from below and out at the top
+   (.tvt-film-track), and rolling on a loop (.tvt-film-reel). The reel
+   holds its frames twice over and moves up by exactly one set, so the
+   loop has no seam: each frame plus its gap is 234px, nine sprocket holes
+   (26px each). */
+.tvt-film {
   position: absolute;
-  inset: 0;
+  z-index: -1;
+  top: -30vh;
+  bottom: -30vh;
+  left: 50%;
+  width: 200px;
+  margin-left: -100px;
+  overflow: hidden;
+  transform: rotate(-9deg);
   pointer-events: none;
-  transition: opacity 0.35s ease;
-  background: radial-gradient(
-    ellipse 70% 40% at 50% 58%,
-    color-mix(in oklab, var(--accent) 10%, transparent),
-    transparent 70%
+  -webkit-mask-image: linear-gradient(transparent, #000 27%, #000 73%, transparent);
+  mask-image: linear-gradient(transparent, #000 27%, #000 73%, transparent);
+}
+.tvt-film-track {
+  animation: tvtFilmIn 1.1s cubic-bezier(0.16, 0.84, 0.3, 1) both;
+}
+.tvt-splash.is-flying .tvt-film-track {
+  animation: tvtFilmOut 0.75s cubic-bezier(0.55, 0, 0.8, 0.3) forwards;
+}
+.tvt-film-reel {
+  padding: 6px 26px 0;
+  background-color: #111113;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.18) 0 12px,
+      transparent 12px 26px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.18) 0 12px,
+      transparent 12px 26px
+    );
+  background-size: 11px 100%;
+  background-position:
+    8px 0,
+    calc(100% - 8px) 0;
+  background-repeat: no-repeat;
+  animation: tvtReel 4.2s linear infinite;
+}
+.tvt-frame {
+  position: relative;
+  display: block;
+  width: 148px;
+  height: 222px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: linear-gradient(
+    160deg,
+    oklch(58% 0.12 var(--h, 40)),
+    oklch(30% 0.08 calc(var(--h, 40) + 40))
   );
 }
-.tvt-splash.is-flying .tvt-sky {
-  opacity: 0;
-}
-.tvt-star {
+.tvt-frame img {
   position: absolute;
-  width: 2px;
-  height: 2px;
-  border-radius: 50%;
-  background: #f5f3ee;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   opacity: 0;
-  animation: tvtTwinkle 2.6s ease-in-out infinite;
+  transition: opacity 0.4s ease;
 }
-.tvt-star.is-big {
-  width: 3px;
-  height: 3px;
-  box-shadow: 0 0 6px 1px rgba(245, 243, 238, 0.5);
-}
-.tvt-moon {
+/* A projector's flicker over the frames. */
+.tvt-frame::after {
+  content: "";
   position: absolute;
-  top: 19%;
-  right: 18%;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  box-shadow:
-    inset -7px 3px 0 0 #f1e6c8,
-    0 0 24px 2px rgba(241, 230, 200, 0.12);
-  transform: rotate(-20deg);
-  animation: tvtFadeIn 1.2s ease-out 0.2s backwards;
+  inset: 0;
+  background: #000;
+  animation: tvtFlicker 0.18s steps(2) infinite;
 }
-[data-theme="light"] .tvt-star,
-[data-theme="light"] .tvt-moon {
-  display: none;
-}
-@keyframes tvtTwinkle {
-  0%,
-  100% {
-    opacity: 0.15;
-    transform: scale(0.7);
-  }
-  50% {
-    opacity: 0.85;
-    transform: scale(1);
+@keyframes tvtReel {
+  to {
+    transform: translateY(-50%);
   }
 }
-/* The logo falls onto its spot: gravity on the way down (ease-in), squash
-   on impact, each bounce lower and quicker than the last. */
+@keyframes tvtFilmIn {
+  from {
+    transform: translateY(115vh);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes tvtFilmOut {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(-160vh);
+  }
+}
+@keyframes tvtFlicker {
+  from {
+    opacity: 0.38;
+  }
+  to {
+    opacity: 0.46;
+  }
+}
+
+/* The logo and name sit in a pool of the page colour, so they read over
+   the film. */
+.tvt-splash-center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.tvt-splash-center::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  top: 50%;
+  width: 380px;
+  height: 330px;
+  margin: -165px 0 0 -190px;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--bg) 92%, transparent),
+    color-mix(in oklab, var(--bg) 60%, transparent) 55%,
+    transparent
+  );
+  transition: opacity 0.3s ease;
+}
+.tvt-splash.is-flying .tvt-splash-center::before {
+  opacity: 0;
+}
 .tvt-brand {
   position: relative;
-  width: 96px;
-  height: 96px;
-  margin-bottom: 10px;
-  transform-origin: 50% 100%;
-  animation: tvtLogoDrop 0.9s 0.1s both;
+  width: 92px;
+  height: 92px;
+  animation: tvtBrandIn 0.9s var(--ease-bouncy) 0.35s backwards;
 }
 .tvt-brand svg {
   position: relative;
   display: block;
-  border-radius: 21px;
-  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.65);
+  border-radius: 20px;
+  box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.8);
 }
 .tvt-brand-glow {
   position: absolute;
-  inset: -28px;
+  inset: -30px;
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    color-mix(in oklab, var(--accent) 38%, transparent),
+    color-mix(in oklab, var(--accent) 36%, transparent),
     transparent 68%
   );
   opacity: 0;
-  animation: tvtGlow 1.1s ease-out 0.47s forwards;
+  animation: tvtGlow 1.2s ease-out 0.6s forwards;
 }
-/* Ripple and dust kicked up where the logo hits. */
-.tvt-brand-wave {
-  position: absolute;
-  inset: -6px;
-  border-radius: 28px;
-  border: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
-  opacity: 0;
-  animation: tvtWave 0.7s ease-out 0.47s forwards;
-}
-.tvt-dust {
-  position: absolute;
-  bottom: -2px;
-  left: 50%;
-  width: 10px;
-  height: 10px;
-  margin-left: -5px;
-  border-radius: 50%;
-  background: var(--ink-faint);
-  opacity: 0;
-}
-.tvt-dust-l {
-  animation: tvtDustL 0.6s ease-out 0.47s forwards;
-}
-.tvt-dust-r {
-  animation: tvtDustR 0.6s ease-out 0.47s forwards;
-}
-.tvt-brand-screen {
-  stroke-dasharray: 398;
-  stroke-dashoffset: 398;
-  animation: tvtDraw 0.6s cubic-bezier(0.65, 0, 0.35, 1) 0.45s forwards;
-}
-/* The antenna draws in and springs up from the top of the set. */
-.tvt-brand-ant {
-  stroke-dasharray: 68;
-  stroke-dashoffset: 68;
-  transform-box: view-box;
-  transform-origin: 96px 62px;
-  animation:
-    tvtDraw 0.3s ease-out 0.6s forwards,
-    tvtAntenna 0.9s var(--ease-wobbly) 0.6s backwards;
-}
-.tvt-brand-play {
+/* The play button in the eye pops a beat after the logo lands. */
+.tvt-brand-iris {
   transform-box: fill-box;
   transform-origin: center;
-  transform: scale(0);
-  animation: tvtDotIn 0.7s var(--ease-wobbly) 0.85s forwards;
+  animation: tvtIrisIn 0.75s var(--ease-wobbly) 0.75s backwards;
 }
 .tvt-splash.is-flying .tvt-brand-glow {
   animation: tvtGlowOut 0.3s ease-out forwards;
 }
 .tvt-splash-sub {
   font-size: 13px;
-  color: var(--ink-faint);
+  color: var(--ink-dim);
   transition: opacity 0.3s ease;
 }
 .tvt-splash.is-flying .tvt-splash-sub {
@@ -484,73 +519,19 @@ button:focus-visible {
 .tvt-landed {
   animation: tvtBoing 0.75s;
 }
-@keyframes tvtLogoDrop {
-  0% {
+@keyframes tvtBrandIn {
+  from {
     opacity: 0;
-    transform: translateY(-170px) scale(0.92, 1.1);
-    animation-timing-function: cubic-bezier(0.5, 0, 1, 0.6);
+    transform: translateY(26px) scale(0.5) rotate(-8deg);
   }
-  12% {
-    opacity: 1;
-  }
-  41% {
-    transform: translateY(0) scale(1.2, 0.78);
-    animation-timing-function: cubic-bezier(0.1, 0.6, 0.4, 1);
-  }
-  58% {
-    opacity: 1;
-    transform: translateY(-30px) scale(0.96, 1.05);
-    animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4);
-  }
-  74% {
-    transform: translateY(0) scale(1.08, 0.92);
-    animation-timing-function: cubic-bezier(0.1, 0.6, 0.4, 1);
-  }
-  84% {
-    transform: translateY(-7px) scale(0.99, 1.01);
-    animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4);
-  }
-  93% {
-    transform: translateY(0) scale(1.02, 0.98);
-  }
-  100% {
+  to {
     opacity: 1;
     transform: none;
   }
 }
-@keyframes tvtWave {
+@keyframes tvtIrisIn {
   from {
-    opacity: 0.6;
-    transform: scale(0.9, 0.7);
-  }
-  to {
-    opacity: 0;
-    transform: scale(1.9, 1.5);
-  }
-}
-@keyframes tvtDustL {
-  from {
-    opacity: 0.45;
-    transform: translate(-20px, 0) scale(0.5);
-  }
-  to {
-    opacity: 0;
-    transform: translate(-72px, -12px) scale(1.8);
-  }
-}
-@keyframes tvtDustR {
-  from {
-    opacity: 0.45;
-    transform: translate(20px, 0) scale(0.5);
-  }
-  to {
-    opacity: 0;
-    transform: translate(72px, -12px) scale(1.8);
-  }
-}
-@keyframes tvtAntenna {
-  from {
-    transform: scaleY(0.2);
+    transform: scale(0);
   }
   to {
     transform: none;
@@ -578,17 +559,12 @@ button:focus-visible {
     transform: scale(0.6);
   }
 }
-@keyframes tvtDotIn {
-  to {
-    transform: scale(1);
-  }
-}
-/* Matches the header title, which it turns into. */
+/* The name, as the header shows it (it turns into the header title). */
 .tvt-splash-title {
   position: relative;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
   white-space: nowrap;
   transform-origin: left center;
 }
@@ -596,12 +572,15 @@ button:focus-visible {
   display: inline-block;
   white-space: pre;
   animation: tvtLetterIn 0.8s var(--ease-bouncy) backwards;
-  animation-delay: calc(var(--d) * 26ms + 160ms);
+  animation-delay: calc(var(--d) * 45ms + 520ms);
+}
+.tvt-dash {
+  color: var(--accent);
 }
 @keyframes tvtLetterIn {
   from {
     opacity: 0;
-    transform: translateY(16px) rotate(10deg) scale(0.6);
+    transform: translateY(18px) rotate(10deg) scale(0.6);
   }
   to {
     opacity: 1;
@@ -640,14 +619,14 @@ button:focus-visible {
   }
 }
 /* While the splash is up, screen entrances wait, so the cards come in as
-   it lifts. On that first entrance (.tvt-intro) they fall into place from
-   above, slower and more staggered, as if dropping out of the header. */
+   it lifts. On that first entrance (.tvt-intro) they rise up after the
+   film, further, slower and more staggered than usual. */
 .tvt-booting #root * {
   animation-play-state: paused !important;
 }
 .tvt-intro {
-  --rise-from: -30px;
-  --rise-dur: 0.85s;
+  --rise-from: 60px;
+  --rise-dur: 0.9s;
   --rise-step: 0.07s;
 }
 
@@ -1193,6 +1172,15 @@ button[role="tab"]:active {
   outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
   outline-offset: 2px;
 }
+/* Dropdowns (Picker, SortPicker): the real <select> is invisible on top,
+   so the focus ring goes on the tile. */
+.tvt-picker:focus-within {
+  outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+.tvt-picker select:focus-visible {
+  outline: none;
+}
 /* A row as wide as the screen would lurch at the usual press. */
 .tvt-wide-btn:not(:disabled):active {
   scale: 0.985;
@@ -1209,15 +1197,7 @@ button[role="tab"]:active {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  .tvt-brand-screen,
-  .tvt-brand-ant {
-    stroke-dashoffset: 0;
-  }
-  .tvt-brand-play {
-    transform: none;
-  }
-  .tvt-dust,
-  .tvt-brand-wave {
+  .tvt-film {
     display: none;
   }
   button:not(:disabled):active {
