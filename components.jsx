@@ -923,6 +923,9 @@ function KeyIcon({ size }) {
 function CloudIcon({ size }) {
   return <Svg size={size}><path d="M7 18.5h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 9.6 4.5 4.5 0 0 0 7 18.5z" /></Svg>;
 }
+function InfoIcon({ size }) {
+  return <Svg size={size}><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5M12 7.6v.1" /></Svg>;
+}
 function ArchiveIcon({ size }) {
   return <Svg size={size}><rect x="3.5" y="4.5" width="17" height="4.5" rx="1" /><path d="M5 9v10.5h14V9M10 13h4" /></Svg>;
 }
@@ -935,5 +938,5 @@ Object.assign(window, {
   ModalFrame, ModalHead, springTo, useModalDismiss, PullToRefresh, downloadBlob,
   XIcon, PlusIcon, MinusIcon, GearIcon, PlayIcon, BookmarkIcon, CheckCircleIcon, StarIcon,
   CompassIcon, PersonIcon, CameraIcon, SearchIcon, CheckIcon, ChevronIcon, ActivityIcon, MoreIcon,
-  TvIcon, FilmIcon, TrashIcon, PencilIcon, ForwardIcon, UploadIcon, PaletteIcon, KeyIcon, CloudIcon, ArchiveIcon,
+  TvIcon, FilmIcon, TrashIcon, PencilIcon, ForwardIcon, UploadIcon, PaletteIcon, KeyIcon, CloudIcon, ArchiveIcon, InfoIcon,
 });

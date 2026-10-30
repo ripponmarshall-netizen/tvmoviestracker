@@ -133,10 +133,6 @@ function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, usernam
 function ProfileHeader({ items, session, sync, avatar, setAvatar, username, onEdit }) {
   const [input, choose] = useAvatarInput(setAvatar);
   const email = session?.user?.email || "";
-  const failed = sync.status.state === "error";
-  const status = session === undefined ? "Checking sign-in…"
-    : session ? syncLabel(sync.status)
-    : cloud ? "Not signed in · saved on this device" : "Saved on this device";
   const first = Math.min(...items.map((i) => isoTime(i.added)).filter(Boolean));
   const since = Number.isFinite(first) ? new Date(first).toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : "";
   const tally = [
@@ -164,16 +160,17 @@ function ProfileHeader({ items, session, sync, avatar, setAvatar, username, onEd
       </button>
       {input}
       <div style={{ position: "relative", marginTop: 12 }}>
-        {username ? (
-          <div key={username} className="tvt-pop" style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-0.02em", overflowWrap: "anywhere" }}>{username}</div>
-        ) : (
-          <button type="button" onClick={onEdit} style={{ background: "none", border: "none", padding: "2px 6px", color: "var(--accent)", fontSize: 19, fontWeight: 600, cursor: "pointer" }}>
-            Set a username
-          </button>
-        )}
-        <div aria-live="polite" style={{ fontSize: 13, color: failed ? "var(--danger)" : "var(--ink-dim)", marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>
-          {email && <>{email}<br /></>}{status}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {username ? (
+            <div key={username} className="tvt-pop" style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-0.02em", overflowWrap: "anywhere", minWidth: 0 }}>{username}</div>
+          ) : (
+            <button type="button" onClick={onEdit} style={{ background: "none", border: "none", padding: "2px 6px", color: "var(--accent)", fontSize: 19, fontWeight: 600, cursor: "pointer" }}>
+              Set a username
+            </button>
+          )}
+          {session && <SyncBadge sync={sync} />}
         </div>
+        {email && <div style={{ fontSize: 13, color: "var(--ink-dim)", marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{email}</div>}
         {since && <div style={{ fontSize: 12.5, color: "var(--ink-faint)", marginTop: 4 }}>Tracking since {since}</div>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", margin: "16px 0 14px", padding: "12px 0", borderTop: "1px solid var(--line-soft)", borderBottom: "1px solid var(--line-soft)" }}>
@@ -191,27 +188,60 @@ function ProfileHeader({ items, session, sync, avatar, setAvatar, username, onEd
   );
 }
 
-/* Awards: the ones you've earned and the nearest to earning first, six on
-   show and the rest under Show All. */
+/* Sync, as a small tick in a circle beside your name: a faded green one
+   once synced (fainter while it syncs, and pulsing), grey offline, red if
+   it failed. Tap it for the details; offline or failed, a tap tries again. */
+function SyncBadge({ sync }) {
+  const { state } = sync.status;
+  const label = syncLabel(sync.status);
+  const look = {
+    ok: { c: "var(--ok)", o: 0.75 },
+    syncing: { c: "var(--ok)", o: 0.45, pulse: true },
+    idle: { c: "var(--ok)", o: 0.45 },
+    offline: { c: "var(--ink-faint)", o: 0.8 },
+    error: { c: "var(--danger)", o: 0.9, alert: true },
+  }[state] || { c: "var(--ink-faint)", o: 0.6 };
+  const tap = () => {
+    showToast(label);
+    if (state === "error" || state === "offline") sync.syncNow();
+  };
+  return (
+    <button type="button" onClick={tap} aria-label={label} title={label} style={{
+      flexShrink: 0, width: 26, height: 26, padding: 0, margin: 0, border: "none", background: "none", cursor: "pointer",
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <span key={state} className={look.pulse ? "tvt-skel" : "tvt-pop"} style={{
+        width: 20, height: 20, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center",
+        color: look.c, opacity: look.o, background: `color-mix(in oklab, ${look.c} 20%, transparent)`,
+        boxShadow: `inset 0 0 0 1.5px color-mix(in oklab, ${look.c} 55%, transparent)`,
+      }}>
+        {look.alert ? <span aria-hidden style={{ fontSize: 13, fontWeight: 800, lineHeight: 1 }}>!</span> : <CheckIcon size={12} />}
+      </span>
+    </button>
+  );
+}
+
+/* Awards: the ones you've earned and the nearest to earning first, eight
+   on show and the rest under Show All. */
 function AwardsSection({ s }) {
   const [open, toggle] = useFold("profile:awards", false);
   const frac = (b) => Math.min(1, b.of(s) / b.goal);
   const sorted = [...BADGES].sort((a, b) => (frac(b) >= 1) - (frac(a) >= 1) || frac(b) - frac(a));
   const earned = BADGES.filter((b) => frac(b) >= 1).length;
   const grid = (list) => (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px 6px" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px 4px" }}>
       {list.map((b) => <BadgeMedal key={b.id} badge={b} value={b.of(s)} />)}
     </div>
   );
   return (
     <>
       <SectionHeader title="Awards" detail={`${earned} of ${BADGES.length}`} />
-      <Card style={{ marginBottom: 26, padding: "20px 10px 10px" }}>
-        {grid(sorted.slice(0, 6))}
-        <Collapse open={open}><div style={{ paddingTop: 20 }}>{grid(sorted.slice(6))}</div></Collapse>
+      <Card style={{ marginBottom: 26, padding: "16px 8px 4px" }}>
+        {grid(sorted.slice(0, 8))}
+        <Collapse open={open}><div style={{ paddingTop: 14 }}>{grid(sorted.slice(8))}</div></Collapse>
         <button type="button" onClick={toggle} aria-expanded={open} style={{
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", marginTop: 14, padding: "8px 0",
-          background: "none", border: "none", color: "var(--accent)", fontSize: 14.5, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", marginTop: 8, padding: "8px 0",
+          background: "none", border: "none", color: "var(--accent)", fontSize: 14, cursor: "pointer",
         }}>
           {open ? "Show Fewer" : `Show All ${BADGES.length}`}
           <span style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.3s var(--ease-snappy)" }}><ChevronIcon dir="down" size={13} /></span>
@@ -392,37 +422,40 @@ function StatTile({ label, value, color, icon }) {
   );
 }
 
-/* An award: a coloured medal once earned; until then a grey one in a ring
-   that fills as you get closer. */
+/* An award: a small coloured medal once earned; until then a faded one in
+   a ring that fills as you get closer. Tap it for what it's for. */
 function BadgeMedal({ badge, value }) {
   const got = value >= badge.goal;
   const frac = Math.min(1, value / badge.goal);
-  const R = 35, C = 2 * Math.PI * R;
+  const SIZE = 50, R = 23, C = 2 * Math.PI * R;
   const show = (n) => (badge.hours ? Math.floor(n / 60) : n).toLocaleString("en-GB");
+  const progress = `${show(value)} / ${show(badge.goal)}${badge.hours ? " h" : ""}`;
   const h = badge.hue;
+  const explain = () => showToast(`${badge.icon} ${badge.name}: ${badge.desc}${got ? " · Earned" : ` · ${progress}`}`);
   return (
-    <div role="img" aria-label={`${badge.name}: ${badge.desc}. ${got ? "Earned" : `${show(value)} of ${show(badge.goal)}`}`} style={{ textAlign: "center", minWidth: 0 }}>
-      <div aria-hidden style={{ position: "relative", width: 78, height: 78, margin: "0 auto" }}>
+    <button type="button" onClick={explain} aria-label={`${badge.name}: ${badge.desc}. ${got ? "Earned" : progress}`} style={{
+      minWidth: 0, padding: "2px 0", margin: 0, background: "none", border: "none", color: "inherit", font: "inherit", textAlign: "center", cursor: "pointer",
+    }}>
+      <span aria-hidden style={{ position: "relative", display: "block", width: SIZE, height: SIZE, margin: "0 auto" }}>
         {!got && (
-          <svg width="78" height="78" viewBox="0 0 78 78" style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }}>
-            <circle cx="39" cy="39" r={R} fill="none" stroke="var(--fill)" strokeWidth="4" />
-            {frac > 0 && <circle cx="39" cy="39" r={R} fill="none" stroke="var(--accent)" strokeWidth="4" strokeLinecap="round" strokeDasharray={`${frac * C} ${C}`} />}
+          <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }}>
+            <circle cx={SIZE / 2} cy={SIZE / 2} r={R} fill="none" stroke="var(--fill)" strokeWidth="3" />
+            {frac > 0 && <circle cx={SIZE / 2} cy={SIZE / 2} r={R} fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeDasharray={`${frac * C} ${C}`} />}
           </svg>
         )}
         <span className={got ? "tvt-pop" : undefined} style={{
-          position: "absolute", inset: got ? 0 : 8, borderRadius: "50%",
-          display: "flex", alignItems: "center", justifyContent: "center", fontSize: got ? 36 : 28,
+          position: "absolute", inset: got ? 2 : 6, borderRadius: "50%",
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: got ? 22 : 18,
           background: got
             ? `radial-gradient(circle at 32% 26%, oklch(90% 0.1 ${h}), oklch(66% 0.17 ${h}) 52%, oklch(44% 0.15 ${h + 25}))`
             : "var(--bg-2)",
-          boxShadow: got ? `inset 0 0 0 3px rgba(255,255,255,0.35), inset 0 -6px 12px rgba(0,0,0,0.18), 0 10px 22px -12px oklch(45% 0.18 ${h})` : "none",
-          filter: got ? "none" : "grayscale(1)", opacity: got ? 1 : 0.5,
+          boxShadow: got ? `inset 0 0 0 2px rgba(255,255,255,0.35), inset 0 -4px 8px rgba(0,0,0,0.18), 0 6px 14px -8px oklch(45% 0.18 ${h})` : "none",
+          filter: got ? "none" : "grayscale(1)", opacity: got ? 1 : 0.45,
         }}>{badge.icon}</span>
-      </div>
-      <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 8 }}>{badge.name}</div>
-      <div style={{ fontSize: 11.5, color: "var(--ink-dim)", marginTop: 2, lineHeight: 1.3, padding: "0 2px" }}>{badge.desc}</div>
-      {!got && <div className="mono" style={{ fontSize: 11, color: "var(--accent)", marginTop: 3, fontWeight: 600 }}>{show(value)} / {show(badge.goal)}{badge.hours ? " h" : ""}</div>}
-    </div>
+      </span>
+      <span className="tvt-clamp-2" style={{ fontSize: 11.5, fontWeight: 600, lineHeight: 1.2, marginTop: 6, color: got ? "var(--ink)" : "var(--ink-dim)" }}>{badge.name}</span>
+      {!got && <span className="mono" style={{ display: "block", fontSize: 10.5, color: "var(--ink-faint)", marginTop: 2 }}>{progress}</span>}
+    </button>
   );
 }
 
