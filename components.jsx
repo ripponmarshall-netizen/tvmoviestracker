@@ -550,6 +550,110 @@ function useModalDismiss(onClose) {
   return { ref: dialogRef, closing: closing || closingRef.current, close };
 }
 
+/* PullToRefresh — pull down from the top of the page to refresh, as in
+   iOS Mail. The page follows the finger with growing resistance while a
+   spinner fills in above it; let go past PULL_TRIGGER and it holds open,
+   spinning, until onRefresh's promise settles, then springs shut. Only a
+   pull that starts at the very top and goes mostly down counts, so
+   scrolling and swiping along a shelf work as before; off while a sheet is
+   open. The listeners are passive: html has overscroll-behavior: none, so
+   there's no native bounce to stop. */
+const PULL_TRIGGER = 72;
+const PULL_HOLD = 54;
+function PullToRefresh({ onRefresh, children }) {
+  const bodyRef = useRefC(null);
+  const spinRef = useRefC(null);
+  const ticksRef = useRefC(null);
+  const [busy, setBusy] = useStateC(false);
+  const cbRef = useRefC(onRefresh);
+  cbRef.current = onRefresh;
+
+  useEffectC(() => {
+    let dist = 0, busyNow = false, stop = null;
+    let startX = 0, startY = 0, tracking = false, decided = false, pulling = false;
+    const paint = (d) => {
+      dist = d;
+      if (bodyRef.current) bodyRef.current.style.transform = d > 0.5 ? `translateY(${d}px)` : "";
+      const spin = spinRef.current;
+      if (!spin) return;
+      const p = Math.min(1, d / PULL_TRIGGER);
+      spin.style.opacity = String(p);
+      spin.style.transform = `translate(-50%, ${Math.max(0, (d - 28) / 2)}px) scale(${0.7 + 0.3 * p})`;
+      // The ticks light up one by one as you pull, as iOS draws it.
+      if (!busyNow) ticksRef.current?.querySelectorAll("line").forEach((l, i) => { l.style.visibility = i < Math.ceil(p * 8) ? "" : "hidden"; });
+    };
+    const settle = (to, done) => {
+      stop?.();
+      if (prefersReducedMotion()) { stop = null; paint(to); done?.(); return; }
+      stop = springTo({ from: dist, to, onUpdate: paint, onDone: () => { stop = null; done?.(); } });
+    };
+    const refresh = () => {
+      busyNow = true;
+      setBusy(true);
+      ticksRef.current?.querySelectorAll("line").forEach((l) => { l.style.visibility = ""; });
+      settle(PULL_HOLD);
+      const t0 = Date.now();
+      Promise.resolve()
+        .then(() => cbRef.current?.())
+        .catch(() => {})
+        .then(() => {
+          // Long enough to see it spin, even when the refresh is instant.
+          setTimeout(() => settle(0, () => { busyNow = false; setBusy(false); }), Math.max(0, 600 - (Date.now() - t0)));
+        });
+    };
+    const onStart = (e) => {
+      tracking = false;
+      if (busyNow || dist > 0.5 || e.touches.length !== 1 || modalStack.length || window.scrollY > 0) return;
+      if (e.target.closest?.(".tvt-tabbar")) return;
+      tracking = true; decided = false; pulling = false;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    };
+    const onMove = (e) => {
+      if (!tracking) return;
+      const t = e.touches[0];
+      if (!decided) {
+        const dx = t.clientX - startX, dy = t.clientY - startY;
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        decided = true;
+        if (dy <= 0 || Math.abs(dx) > Math.abs(dy) || window.scrollY > 0) { tracking = false; return; }
+        pulling = true;
+        startY = t.clientY; // from here, so the page doesn't jump
+      }
+      const y = Math.max(0, t.clientY - startY);
+      paint((y * 0.55) / (1 + y / 600));
+    };
+    const onEnd = () => {
+      if (!tracking) return;
+      tracking = false;
+      if (!pulling) return;
+      if (dist >= PULL_TRIGGER) refresh();
+      else settle(0);
+    };
+    window.addEventListener("touchstart", onStart, { passive: true });
+    window.addEventListener("touchmove", onMove, { passive: true });
+    window.addEventListener("touchend", onEnd);
+    window.addEventListener("touchcancel", onEnd);
+    return () => {
+      stop?.();
+      window.removeEventListener("touchstart", onStart);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+      window.removeEventListener("touchcancel", onEnd);
+    };
+  }, []);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div ref={spinRef} aria-hidden style={{ position: "absolute", top: 0, left: "50%", opacity: 0, color: "var(--ink-dim)", pointerEvents: "none" }}>
+        <span ref={ticksRef} className={busy ? "tvt-ptr-spin" : undefined} style={{ display: "inline-flex" }}><ActivityIcon /></span>
+      </div>
+      {busy && <span role="status" className="sr-only">Refreshing</span>}
+      <div ref={bodyRef}>{children}</div>
+    </div>
+  );
+}
+
 /* downloadBlob — save a Blob as a file. Revoking the URL in the same tick
    as click() can cancel the download in Safari, so release it later. */
 function downloadBlob(blob, filename) {
@@ -618,6 +722,17 @@ function SearchIcon({ size = 17 }) {
 function CheckIcon({ size = 18 }) {
   return <Svg size={size} sw={2.4}><path d="M5 12.5l4.5 4.5L19 7.5" /></Svg>;
 }
+/* iOS's activity indicator: eight ticks fading round the circle. */
+function ActivityIcon({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      {Array.from({ length: 8 }, (_, i) => (
+        <line key={i} x1="12" y1="2.5" x2="12" y2="7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
+          opacity={1 - i * 0.11} transform={`rotate(${-i * 45} 12 12)`} />
+      ))}
+    </svg>
+  );
+}
 function ChevronIcon({ size = 14, dir = "right" }) {
   return <Svg size={size} sw={2.2}><path d={dir === "left" ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} /></Svg>;
 }
@@ -627,7 +742,7 @@ Object.assign(window, {
   prefersReducedMotion, useFoldAway, AnimatedRow, Collapse,
   showToast, ToastHost, askConfirm, ConfirmHost,
   ScreenTitle, SectionHeader, ProgressBar,
-  ModalFrame, ModalHead, springTo, useModalDismiss, downloadBlob,
+  ModalFrame, ModalHead, springTo, useModalDismiss, PullToRefresh, downloadBlob,
   XIcon, PlusIcon, MinusIcon, GearIcon, PlayIcon, BookmarkIcon, CheckCircleIcon, StarIcon,
-  CompassIcon, PersonIcon, SearchIcon, CheckIcon, ChevronIcon,
+  CompassIcon, PersonIcon, SearchIcon, CheckIcon, ChevronIcon, ActivityIcon,
 });

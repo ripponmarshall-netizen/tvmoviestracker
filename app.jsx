@@ -2,7 +2,7 @@
    and the tab bar */
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -142,6 +142,7 @@ function App() {
   const [detail, setDetail] = useState(null); // the title open in the title sheet
   const [editing, setEditing] = useState(null); // the item open in the edit sheet
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [csvOpen, setCsvOpen] = useState(false);
   // The latest list, for timers (fold-away, Undo) and sync merges. Every
   // change goes through updateItems, which updates it at once rather than
   // on the next render, so a merge never works from a stale copy.
@@ -269,6 +270,34 @@ function App() {
     showToast(message, { action: { label: "Undo", onClick: () => updateItems(() => prev.map(touch)) } });
   };
 
+  // CSV import: merged in with Undo, then titles without TMDB details are
+  // matched there in the background. A match for a title already in the
+  // library under another name is left out rather than make a duplicate.
+  const importCsv = (plan) => {
+    replaceAll(plan.items, `Imported ${plural(plan.added + plan.updated, "title")}`);
+    if (!tmdbKey || !plan.toLink.length) return;
+    const started = Date.now();
+    linkWithTmdb(plan.toLink, tmdbKey, (batch) => updateItems((prev) => {
+      const have = new Set(prev.filter((i) => i.tmdbId).map((i) => `${i.kind}:${i.tmdbId}`));
+      return prev.map((i) => {
+        const p = batch.get(i.id);
+        if (!p || (!i.tmdbId && have.has(`${p.kind}:${p.tmdbId}`))) return i;
+        return normaliseItem(touch({ ...i, ...p })) || i;
+      });
+    })).then((n) => {
+      // After the Undo toast has had its time.
+      setTimeout(() => showToast(`Matched ${n} of ${plural(plan.toLink.length, "title")} on TMDB`), Math.max(0, 6500 - (Date.now() - started)));
+    });
+  };
+
+  // Pull to refresh: sync with your account, and fetch afresh from TMDB
+  // what's on screen and what you're watching.
+  const refresh = async () => {
+    const watchingNow = itemsRef.current.filter((i) => i.status === "watching");
+    const [tmdb] = await Promise.allSettled([refreshTmdb(tmdbKey, watchingNow), userId ? sync.syncNow() : null]);
+    if (tmdb.status === "rejected") showToast(tmdb.reason?.message || "Couldn't refresh");
+  };
+
   const counts = useMemo(() => ({ watching: items.filter((i) => i.status === "watching").length }), [items]);
 
   const isNew = editing && !items.some((i) => i.id === editing.id);
@@ -302,7 +331,7 @@ function App() {
     <div>
       <Header onAdd={() => setEditing(blankItem(addStatus))} onSettings={openSettings} />
 
-      {screen}
+      <PullToRefresh onRefresh={refresh}>{screen}</PullToRefresh>
 
       <Taskbar tab={tab} onTab={go} counts={counts} />
 
@@ -345,10 +374,12 @@ function App() {
           // Restored titles count as edited now, so they win over newer
           // versions elsewhere: the backup is what you asked for.
           onImport={(list) => replaceAll(list.map(touch), `Imported ${plural(list.length, "title")}`)}
+          onImportCsv={() => setCsvOpen(true)}
           onErase={() => replaceAll([], "Everything erased")}
           onClose={() => setSettingsOpen(false)}
         />
       )}
+      {csvOpen && <CsvImportSheet items={items} tmdbKey={tmdbKey} onImport={importCsv} onClose={() => setCsvOpen(false)} />}
 
       <ToastHost />
       <ConfirmHost />
@@ -665,7 +696,7 @@ function RatingInput({ value, onChange }) {
 }
 
 /* ============ Settings ============ */
-function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, session, sync, items, onImport, onErase, onClose }) {
+function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, session, sync, items, onImport, onImportCsv, onErase, onClose }) {
   const { ref, closing, close } = useModalDismiss(onClose);
   const fileRef = useRef(null);
   const [testing, setTesting] = useState(false);
@@ -757,10 +788,14 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, session, sync, it
             ? "Your list syncs to your account. A backup file is still worth keeping now and then."
             : "Your list is saved on this device only. Export a copy now and then: Safari can clear a site's data."}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button type="button" onClick={exportJson} style={ghostBtn()}>Export</button>
           <button type="button" onClick={() => fileRef.current?.click()} style={ghostBtn()}>Import</button>
+          <button type="button" onClick={onImportCsv} style={ghostBtn()}>Import CSV</button>
           <input ref={fileRef} type="file" accept="application/json,.json" onChange={importJson} hidden />
+        </div>
+        <div style={{ ...note, fontSize: 12.5, color: "var(--ink-faint)", margin: "8px 0 0" }}>
+          Import CSV merges ratings, library, watched and list exports, such as another tracker's, into your list.
         </div>
       </Field>
       <Field label="Reset">
