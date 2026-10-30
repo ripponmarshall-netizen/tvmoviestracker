@@ -371,6 +371,13 @@
       integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"
       crossorigin="anonymous"
     ></script>
+    <!-- Sign-in and sync. If it can't load (offline on a first visit), the
+         app still runs, device-only. -->
+    <script
+      src="https://unpkg.com/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"
+      integrity="sha384-BWcjm9OdFth9TbhCxZPdm+gAOUMAzQy9nmTs12ioXdCcbVnJaPMn+fMUoQCLt60R"
+      crossorigin="anonymous"
+    ></script>
     <script
       src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
       integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
@@ -378,6 +385,8 @@
     ></script>
     <!-- Add a new .jsx file here (before app.jsx) and to ASSETS in sw.js. -->
     <script type="text/babel" src="components.jsx"></script>
+    <script type="text/babel" src="tmdb.jsx"></script>
+    <script type="text/babel" src="cloud.jsx"></script>
     <script type="text/babel" src="app.jsx"></script>
 
     <script>

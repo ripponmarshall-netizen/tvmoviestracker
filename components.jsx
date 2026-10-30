@@ -301,11 +301,13 @@ function ModalFrame({ dismiss, sheet, zIndex = 70, maxWidth = 520, role = "dialo
   );
 }
 
-/* ModalHead — small label, title and a close button. */
-function ModalHead({ eyebrow, title, onClose }) {
+/* ModalHead — small label, title and a close button, with an optional
+   `lead` (a poster) before them. */
+function ModalHead({ eyebrow, title, onClose, lead }) {
   return (
-    <div style={{ display: "flex", alignItems: eyebrow ? "flex-start" : "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
-      <div style={{ minWidth: 0 }}>
+    <div style={{ display: "flex", alignItems: eyebrow && !lead ? "flex-start" : "center", gap: 12, marginBottom: 14 }}>
+      {lead}
+      <div style={{ minWidth: 0, flex: 1 }}>
         {eyebrow && <div className="label">{eyebrow}</div>}
         <div style={{ fontSize: eyebrow ? 17 : 18, fontWeight: 600, marginTop: eyebrow ? 2 : 0, overflowWrap: "anywhere" }}>{title}</div>
       </div>

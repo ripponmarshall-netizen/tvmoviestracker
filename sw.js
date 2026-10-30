@@ -15,6 +15,8 @@ const ASSETS = [
   "./manifest.json",
   "./styles.css",
   "./components.jsx",
+  "./tmdb.jsx",
+  "./cloud.jsx",
   "./app.jsx",
   "./icon.svg",
   "./icon-192.png",
@@ -22,11 +24,13 @@ const ASSETS = [
   "./apple-touch-icon.png",
 ];
 
-// React and Babel load from a CDN at pinned versions (index.html). Those
-// files never change, so they are cache-first.
+// React, Supabase and Babel load from a CDN at pinned versions
+// (index.html). Those files never change, so they are cache-first. Calls
+// to Supabase and TMDB, and TMDB's posters, pass straight through.
 const CDN_ASSETS = [
   "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
   "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js",
+  "https://unpkg.com/@supabase/supabase-js@2.117.3/dist/umd/supabase.js",
   "https://unpkg.com/@babel/standalone@7.29.0/babel.min.js",
 ];
 const CDN_HOSTS = new Set(["unpkg.com"]);
