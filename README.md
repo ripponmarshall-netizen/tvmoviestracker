@@ -4,9 +4,9 @@
 
 - **Watching**: *Up Next*, the next episode of what you've watched in the last 30 days (rolling on to the next season); *Not Started*, shows with no episode ticked yet; *Caught Up*, shows you've seen everything out of; your watchlist, titles like your recent ones, what you've finished lately and *On Hold*, what you haven't watched in a while. Each list folds away under its header, and its **•••** menu acts on all its shows (mark all caught up, move all to Watched or the Watchlist). Every row has a **•••** menu too: tick the next episode, *I'm Caught Up* (jump to the latest episode out), choose the episode you're on, move or remove it.
 - **Explore**: what's trending and popular on TMDB, for shows, movies or both, with search.
-- **Profile**: your username and picture (Edit Profile), sync status and library counts, total watch time split by shows and movies, top genres, awards for milestones, your library's lists (each with search and a sort dropdown), Settings and CSV import.
+- **Profile**: your username and picture (Edit Profile), with a small green tick beside the name once synced (tap it for details), library counts, total watch time split by shows and movies, top genres, awards for milestones, your library's lists (each with search and a sort dropdown), Settings and CSV import.
 
-Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations and sheets you can pull down to close. The loading screen is a strip of film (its frames your own posters) rolling up the screen; once the app is ready it whooshes off the top, the logo and name glide into the header and the page rises in behind it.
+Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, a show's schedule from TVmaze (your next episode by name, the next to air in your time zone, the latest out, and its days and channel), and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations and sheets you can pull down to close. The loading screen is a strip of film (its frames your own posters) rolling up the screen; once the app is ready it whooshes off the top, the logo and name glide into the header and the page rises in behind it.
 
 There's no build step. React and Babel load from a CDN, and the `.jsx` files are compiled in the browser, so you can edit any file on GitHub (even from a phone) and the change is live once Pages redeploys.
 
@@ -22,6 +22,10 @@ There's no build step. React and Babel load from a CDN, and the `.jsx` files are
 2. In the app: **Settings → Title search**, paste the *API Key* (or the longer *API Read Access Token*) and tap **Test**.
 
 Explore, the title sheet's facts, Up Next's season roll-over and the watch-time stats all need the key; without it the app still tracks your list.
+
+### Schedules (TVmaze)
+
+Nothing to set up: [TVmaze](https://www.tvmaze.com/api) is free and needs no key. A show is found by its IMDb or TVDB id (from TMDB's details), else by name and year. Its data is licensed CC BY-SA 4.0, so the title sheet links to TVmaze and **Settings → About & Credits** lists it, with TMDB, Supabase and the open-source code the app uses.
 
 The key is stored on the device and, once you're signed in, in your profile, so other devices pick it up. It never goes in the repo.
 
@@ -44,12 +48,13 @@ Then **Settings → Account → Sign in**. Sign-in uses a password rather than a
 | `styles.css` | Colour tokens (dark and light), spring easings, and every animation. |
 | `components.jsx` | Shared building blocks: `Card`, `SegToggle`, button styles, `ScreenTitle`, `SectionHeader`, `ProgressBar`, `ModalFrame` (sheets and dialogs), `showMenu` (action sheets), `FoldSection` and `useFold` (fold-away sections), `Picker` (a dropdown), `PullToRefresh`, `showToast`, `askConfirm`, `AnimatedRow`, `Collapse`, icons. |
 | `tmdb.jsx` | TMDB search, image URLs, title details (cached on the device), the Explore lists, and the episode maths (`nextEpisode`, `episodesWatched`, `airedEpisodes`, `latestAired`). |
+| `tvmaze.jsx` | TVmaze: finding a show (`findTvmazeId`), its next and latest episodes and schedule (cached on the device), episode names (`useTvmaze`), and the title sheet's Schedule section (`AirSection`). |
 | `cloud.jsx` | Supabase config, sign-in, the profile (TMDB key, username, profile picture) and sync. |
 | `detail.jsx` | The title sheet (`TitleSheet`): artwork, the facts strip, status tiles, progress (with `EpisodePicker`, the season and episode dropdowns), rating, more like this. |
 | `browse.jsx` | The Watching and Explore screens (`watchingGroup` decides Up Next, Not Started, Caught Up or On Hold), and the poster cards and shelves they're built from. |
 | `profile.jsx` | The Profile screen: the username (`cleanUsername`, `ProfileSheet`), the profile picture (`avatarFromFile`, `AvatarPicker`), `watchStats`, the `BADGES` list, the library rows. |
 | `importcsv.jsx` | CSV import: the parser, column matching (`CSV_HEADS`), merging into the library (`planImport`), matching titles on TMDB afterwards, and the import sheet. |
-| `app.jsx` | The data model, routing between tabs, the "•••" menus (`itemMenu`, `bulkMenu`), catching up (`catchUp`), the list screens, add/edit sheet, settings and tab bar. |
+| `app.jsx` | The data model, routing between tabs, the "•••" menus (`itemMenu`, `bulkMenu`), catching up (`catchUp`), the list screens, add/edit sheet, settings (with `CREDITS`, the attributions) and tab bar. |
 | `supabase/schema.sql` | The tables and row-level security for sync. |
 | `sw.js` | Offline support. The app's own files are network-first, so a deploy shows up on the next reload. TMDB posters are cache-first (the latest 600). |
 | `check.js` | CI check: every `.jsx` file compiles, is precached and declares no name another file does. Runs on each push. |
@@ -63,6 +68,7 @@ Everything is saved on the device first, in `localStorage` under `tvt:v1`, so th
 | `tvt:tmdb:v1` | Details of titles you've looked at (the latest 2,000; synopses only for the ones opened lately) | Shows daily, movies monthly |
 | `tvt:lists:v1` | Explore's lists | After half an hour |
 | `tvt:recs:v1` | "More like this" for the 60 titles you opened last | With the title's details |
+| `tvt:tvmaze:v1` | TVmaze schedules for the 300 shows opened last | After 12 hours, or once the next episode has aired |
 | `tvt-img-v1` (service worker cache) | Posters and stills (the latest 600) | Never: TMDB image files don't change |
 
 They're only caches: each is dropped first if storage runs short. Pulling down to refresh fetches the lists and titles on screen, and the shows you're watching, straight away.
@@ -111,6 +117,7 @@ A watched movie counts its TMDB runtime. A show counts the episodes up to your p
 - **A new status** (e.g. *Dropped*): add an entry to `STATUSES`. That gives it a list screen (Profile → Library), a status tile on the title sheet and a place in the edit sheet.
 - **A new tab**: add it to `TABS` in `app.jsx` and a branch where `App` picks the screen.
 - **A new award**: add an entry to `BADGES` in `profile.jsx`, with the stat it reads (`of`) and its `goal`.
+- **A new data source or library**: credit it in `CREDITS` or `OPEN_SOURCE` in `app.jsx`.
 - **A new Explore shelf**: add a row to `EXPLORE` in `browse.jsx` with any TMDB list path (e.g. `/discover/tv?with_networks=213`).
 - **A CSV column the import doesn't know**: add its header (lower-case, letters and digits only) to the right field in `CSV_HEADS` in `importcsv.jsx`.
 - **A new one-tap button on a row**: add a case to `quickAction`. If it moves the title to another tab, the row folds away and an Undo toast appears automatically.

@@ -186,7 +186,8 @@ function detailsStale(d) {
    `seasons` maps season number to episode count (specials left out),
    `last` is the latest aired episode as [season, episode] (`lastDate` the
    day it aired), and `next` the next one announced. `rt` is minutes: a movie's runtime, or a show's
-   typical episode (0 when TMDB doesn't know). */
+   typical episode (0 when TMDB doesn't know). `imdb` and `tvdb` are a
+   show's ids elsewhere, for TVmaze. */
 function compactDetails(kind, r) {
   const tv = kind === "tv";
   const seasons = {};
@@ -216,6 +217,8 @@ function compactDetails(kind, r) {
     last: last ? [last.season_number, last.episode_number] : null,
     lastDate: last?.air_date || "",
     next: next ? { s: next.season_number, e: next.episode_number, date: next.air_date || "" } : null,
+    imdb: tv && /^tt\d+$/.test(r.external_ids?.imdb_id || "") ? r.external_ids.imdb_id : "",
+    tvdb: tv && r.external_ids?.tvdb_id > 0 ? r.external_ids.tvdb_id : 0,
   };
 }
 
@@ -223,7 +226,9 @@ function compactDetails(kind, r) {
 function loadDetails(kind, id, key) {
   const k = detailsKey(kind, id);
   if (detailsInflight.has(k)) return detailsInflight.get(k);
-  const p = tmdbGet(`/${kind}/${id}`, { language: TMDB_LANGUAGE, append_to_response: "recommendations" }, key)
+  // A show's IMDb and TVDB ids come too: they find it on TVmaze.
+  const extra = kind === "tv" ? "recommendations,external_ids" : "recommendations";
+  const p = tmdbGet(`/${kind}/${id}`, { language: TMDB_LANGUAGE, append_to_response: extra }, key)
     .then((r) => {
       const d = compactDetails(kind, r);
       detailsAll()[k] = d;

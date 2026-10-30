@@ -20,6 +20,7 @@ const ASSETS = [
   "./styles.css",
   "./components.jsx",
   "./tmdb.jsx",
+  "./tvmaze.jsx",
   "./cloud.jsx",
   "./detail.jsx",
   "./browse.jsx",
@@ -34,7 +35,7 @@ const ASSETS = [
 
 // React, Supabase and Babel load from a CDN at pinned versions
 // (index.html). Those files never change, so they are cache-first. Calls
-// to Supabase and TMDB, and TMDB's posters, pass straight through.
+// to Supabase, TMDB and TVmaze pass straight through.
 const CDN_ASSETS = [
   "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
   "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js",

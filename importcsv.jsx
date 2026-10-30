@@ -367,7 +367,9 @@ async function searchBest(t, key) {
 
 async function matchOnTmdb(t, key) {
   if (t.tmdbId && t.kind) {
-    const d = await loadDetails(t.kind, t.tmdbId, key);
+    // Details fetched lately already say whether TMDB has a poster.
+    const have = cachedDetails(t.kind, t.tmdbId);
+    const d = have && !detailsStale(have) ? have : await loadDetails(t.kind, t.tmdbId, key);
     return { poster: d.poster, year: d.date.slice(0, 4) || t.year };
   }
   if (t.imdbId) {

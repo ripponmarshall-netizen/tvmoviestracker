@@ -2,7 +2,7 @@
    and the tab bar */
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.7.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -464,7 +464,8 @@ function App() {
 
   return (
     <div>
-      <Header onAdd={() => setEditing(blankItem(addStatus))} onSettings={openSettings} />
+      {/* Profile has its own way into Settings, and nothing to add to. */}
+      <Header bare={tab === "profile" && !list} onAdd={() => setEditing(blankItem(addStatus))} onSettings={openSettings} />
 
       <PullToRefresh onRefresh={refresh}>{screen}</PullToRefresh>
 
@@ -532,7 +533,7 @@ function App() {
 }
 
 /* ============ Header ============ */
-function Header({ onAdd, onSettings }) {
+function Header({ bare, onAdd, onSettings }) {
   // The hairline under the header only shows once the page has scrolled.
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -549,8 +550,12 @@ function Header({ onAdd, onSettings }) {
         <h1 data-splash-target="title" style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 21, fontWeight: 700, letterSpacing: "-0.035em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           pree<span className="tvt-dash">-</span>it
         </h1>
-        <button type="button" onClick={onAdd} aria-label="Add a title" title="Add a title" style={{ ...iconBtn(), background: "var(--accent)", color: "var(--accent-ink)" }}><PlusIcon /></button>
-        <button type="button" onClick={onSettings} aria-label="Settings" title="Settings" style={iconBtn()}><GearIcon /></button>
+        {!bare && (
+          <>
+            <button type="button" onClick={onAdd} aria-label="Add a title" title="Add a title" style={{ ...iconBtn(), background: "var(--accent)", color: "var(--accent-ink)" }}><PlusIcon /></button>
+            <button type="button" onClick={onSettings} aria-label="Settings" title="Settings" style={iconBtn()}><GearIcon /></button>
+          </>
+        )}
       </div>
     </header>
   );
@@ -1041,14 +1046,72 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, username,
         <div style={note}>Removes every title{signedIn ? ", here and in your account" : ""}. Your settings stay.</div>
         <button type="button" onClick={erase} disabled={!items.length} style={{ ...ghostBtn(), color: "var(--danger)", opacity: items.length ? 1 : 0.4 }}>Erase Everything</button>
       </SettingsGroup>
+      <SettingsGroup id="credits" icon={<InfoIcon size={17} />} tint="#5e5ce6" title="About & Credits" summary="TMDB · TVmaze">
+        <Credits />
+      </SettingsGroup>
       <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 14 }}>
         pree-it v{APP_VERSION} · {plural(items.length, "title")}
       </div>
-      {/* TMDB's terms ask apps using its API to say this. */}
+      {/* TMDB's terms ask apps using its API to say this where it can be seen. */}
       <div style={{ fontSize: 11.5, color: "var(--ink-faint)", marginTop: 6, lineHeight: 1.4 }}>
-        Search and posters from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
+        This product uses the TMDB API but is not endorsed or certified by TMDB. Schedules from TVmaze, under CC BY-SA 4.0.
       </div>
     </ModalFrame>
+  );
+}
+
+/* Where the app's data, services and code come from, with the notices
+   and licences each one asks for. Add a row to CREDITS for anything new. */
+const CREDITS = [
+  {
+    name: "TMDB", href: "https://www.themoviedb.org",
+    what: "Titles, posters, artwork, ratings, runtimes, episode counts, recommendations and Explore.",
+    terms: "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+    links: [["API terms", "https://www.themoviedb.org/api-terms-of-use"]],
+  },
+  {
+    name: "TVmaze", href: "https://www.tvmaze.com",
+    what: "Air times, episode names and synopses, and schedules on the title sheet.",
+    terms: "TVmaze data is licensed under CC BY-SA 4.0.",
+    links: [["Licence", "https://creativecommons.org/licenses/by-sa/4.0/"], ["API", "https://www.tvmaze.com/api"]],
+  },
+  {
+    name: "Supabase", href: "https://supabase.com",
+    what: "Sign-in, and syncing your list and profile between devices.",
+  },
+];
+const OPEN_SOURCE = [
+  ["React and React DOM", "MIT", "https://github.com/facebook/react"],
+  ["Babel Standalone", "MIT", "https://github.com/babel/babel"],
+  ["Supabase JS", "MIT", "https://github.com/supabase/supabase-js"],
+  ["Geist font, by Vercel", "SIL Open Font Licence 1.1", "https://github.com/vercel/geist-font"],
+];
+function Credits() {
+  const link = (label, href, style) => (
+    <a key={href} href={href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "none", ...style }}>{label}</a>
+  );
+  const rule = { borderTop: "1px solid var(--line-soft)", paddingTop: 10, marginTop: 10 };
+  return (
+    <div style={{ fontSize: 13, lineHeight: 1.45 }}>
+      {CREDITS.map((c, i) => (
+        <div key={c.name} style={i ? rule : undefined}>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>{link(c.name, c.href, { color: "var(--ink)" })}</div>
+          <div style={{ color: "var(--ink-dim)", marginTop: 2 }}>{c.what}</div>
+          {c.terms && <div style={{ color: "var(--ink-faint)", fontSize: 12.5, marginTop: 4 }}>{c.terms}</div>}
+          {c.links && <div style={{ display: "flex", gap: 14, fontSize: 12.5, marginTop: 4 }}>{c.links.map(([l, h]) => link(l, h))}</div>}
+        </div>
+      ))}
+      <div style={rule}>
+        <div style={{ fontSize: 15, fontWeight: 600 }}>Open source</div>
+        {OPEN_SOURCE.map(([name, licence, href]) => (
+          <div key={name} style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 4 }}>
+            <span style={{ flex: 1, minWidth: 0 }}>{link(name, href, { color: "var(--ink-dim)" })}</span>
+            <span style={{ fontSize: 12, color: "var(--ink-faint)", flexShrink: 0 }}>{licence}</span>
+          </div>
+        ))}
+        <div style={{ color: "var(--ink-faint)", fontSize: 12.5, marginTop: 6 }}>Scripts load from unpkg and the font from Google Fonts. Icons are drawn for pree-it.</div>
+      </div>
+    </div>
   );
 }
 

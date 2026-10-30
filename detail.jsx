@@ -41,6 +41,12 @@ function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onCa
     .filter(Boolean).join(" · ");
   const overview = d?.overview || top.overview || "";
   const more = (recs || []).filter((t) => !(t.kind === kind && t.tmdbId === tmdbId)).slice(0, 15);
+  // TVmaze, for a show: once TMDB's details are in (they carry the ids
+  // that find it for certain), or straight away without them.
+  const ready = !tmdbId || !tmdbKey || d || error;
+  const nextUp = item && tv && item.status === "watching" ? nextEpisode(item, d) : null;
+  const air = useTvmaze(tv && title && ready ? { tmdbId, title, year, imdb: d?.imdb || "", tvdb: d?.tvdb || 0 } : null,
+    nextUp ? { s: nextUp.season, e: nextUp.episode } : null);
   const remove = () => { onDelete(item.id); close(); };
 
   return (
@@ -99,6 +105,8 @@ function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onCa
           </DetailSection>
         )}
 
+        {tv && <AirSection m={air} mine={nextUp && { s: nextUp.season, e: nextUp.episode }} />}
+
         {(overview || d?.tagline) && (
           <DetailSection title="About">
             {d?.tagline && <div style={{ fontSize: 15, fontStyle: "italic", color: "var(--ink-dim)", marginBottom: 6 }}>{d.tagline}</div>}
@@ -129,7 +137,9 @@ function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onCa
           {item && <button type="button" onClick={remove} style={{ ...ghostBtn(), flex: 1, color: "var(--danger)" }}>Remove</button>}
         </div>
         <div style={{ fontSize: 11.5, color: "var(--ink-faint)", textAlign: "center", lineHeight: 1.4, padding: "14px 24px calc(22px + var(--safe-bottom))" }}>
-          {tmdbId ? "Details from TMDB" : ""}
+          {[tmdbId && "Details from TMDB", air?.id && (
+            <React.Fragment key="tvmaze">Schedule from <a href={air.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>TVmaze</a> (CC BY-SA)</React.Fragment>
+          )].filter(Boolean).flatMap((x, i) => (i ? [" · ", x] : [x]))}
         </div>
       </div>
     </ModalFrame>
