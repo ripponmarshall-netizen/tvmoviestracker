@@ -1,7 +1,7 @@
 /* app.jsx — data, screens, the add/edit sheet, settings and the tab bar */
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -58,6 +58,10 @@ function normaliseItem(x) {
     episode: clampInt(x.episode ?? 0, 0, 9999),
     rating: clampInt(x.rating ?? 0, 0, 5),
     note: String(x.note ?? "").slice(0, 2000),
+    // Filled in when the title is picked from TMDB search; empty otherwise.
+    tmdbId: Number.isInteger(x.tmdbId) && x.tmdbId > 0 ? x.tmdbId : null,
+    poster: typeof x.poster === "string" && /^\/[\w.-]+$/.test(x.poster) ? x.poster : "",
+    year: /^\d{4}$/.test(String(x.year ?? "")) ? String(x.year) : "",
     added: typeof x.added === "string" ? x.added : now,
     updated: typeof x.updated === "string" ? x.updated : now,
   };
@@ -73,8 +77,10 @@ function cleanList(list) {
   });
 }
 function blankItem(status) {
-  return { id: newId(), kind: "tv", title: "", status, season: 1, episode: 0, rating: 0, note: "" };
+  return { id: newId(), kind: "tv", title: "", status, season: 1, episode: 0, rating: 0, note: "", tmdbId: null, poster: "", year: "" };
 }
+// A fresh edit time, so this version wins when devices sync (undo uses it).
+const touch = (item) => ({ ...item, updated: nowIso() });
 
 function loadState() {
   let s = {};
@@ -84,6 +90,7 @@ function loadState() {
     theme: pick(s.theme, THEMES, "auto"),
     tab: pick(s.tab, STATUSES, "watching"),
     filter: pick(s.filter, FILTERS, "all"),
+    tmdbKey: typeof s.tmdbKey === "string" ? s.tmdbKey : "",
   };
 }
 function saveState(state) {
@@ -115,16 +122,28 @@ function App() {
   const [theme, setTheme] = useState(initial.theme);
   const [tab, setTab] = useState(initial.tab);
   const [filter, setFilter] = useState(initial.filter);
+  const [tmdbKey, setTmdbKey] = useState(initial.tmdbKey);
   const [editing, setEditing] = useState(null); // the item open in the sheet
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Timers (fold-away, toasts' Undo) call back later; read the latest list.
+  // The latest list, for timers (fold-away, Undo) and sync merges. Every
+  // change goes through updateItems, which updates it at once rather than
+  // on the next render, so a merge never works from a stale copy.
   const itemsRef = useRef(items);
-  itemsRef.current = items;
+  const updateItems = (fn) => {
+    const next = fn(itemsRef.current);
+    itemsRef.current = next;
+    setItems(next);
+  };
+
+  const session = useSession();
+  const userId = session?.user?.id;
+  const sync = useCloudSync(userId, items, itemsRef, updateItems);
+  useProfileKey(userId, tmdbKey, setTmdbKey);
 
   // The app is on screen: hand the loading screen over to the header logo.
   useEffect(() => { window.tvtSplashDone?.(); }, []);
 
-  useEffect(() => { saveState({ items, theme, tab, filter }); }, [items, theme, tab, filter]);
+  useEffect(() => { saveState({ items, theme, tab, filter, tmdbKey }); }, [items, theme, tab, filter, tmdbKey]);
 
   useEffect(() => {
     const mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
@@ -148,24 +167,26 @@ function App() {
     setTab(t);
   };
 
-  const replace = (item) => setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
+  const replace = (item) => updateItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
 
   const saveItem = (draft) => {
     const exists = itemsRef.current.some((i) => i.id === draft.id);
-    const item = normaliseItem({ ...draft, updated: nowIso() });
+    const item = normaliseItem(touch(draft));
     if (!item) return;
     if (exists) { replace(item); return; }
-    setItems((prev) => [item, ...prev]);
+    updateItems((prev) => [item, ...prev]);
     showToast(`Added to ${statusLabel(item.status)}`);
   };
 
+  // Undo puts things back with a fresh edit time, so on other devices the
+  // restore wins over the change it undoes.
   const deleteItem = (id) => {
     const index = itemsRef.current.findIndex((i) => i.id === id);
     if (index === -1) return;
     const gone = itemsRef.current[index];
-    setItems((prev) => prev.filter((i) => i.id !== id));
+    updateItems((prev) => prev.filter((i) => i.id !== id));
     showToast(`Deleted “${gone.title}”`, {
-      action: { label: "Undo", onClick: () => setItems((prev) => { const n = [...prev]; n.splice(Math.min(index, n.length), 0, gone); return n; }) },
+      action: { label: "Undo", onClick: () => updateItems((prev) => { const n = [...prev]; n.splice(Math.min(index, n.length), 0, touch(gone)); return n; }) },
     });
   };
 
@@ -173,17 +194,17 @@ function App() {
     const before = itemsRef.current.find((i) => i.id === id);
     const q = before && quickAction(before);
     if (!q) return;
-    const after = { ...before, ...q.patch, updated: nowIso() };
+    const after = touch({ ...before, ...q.patch });
     replace(after);
     if (after.status !== before.status) {
-      showToast(`Moved to ${statusLabel(after.status)}`, { action: { label: "Undo", onClick: () => replace(before) } });
+      showToast(`Moved to ${statusLabel(after.status)}`, { action: { label: "Undo", onClick: () => replace(touch(before)) } });
     }
   };
 
   const replaceAll = (list, message) => {
     const prev = itemsRef.current;
-    setItems(list);
-    showToast(message, { action: { label: "Undo", onClick: () => setItems(prev) } });
+    updateItems(() => list);
+    showToast(message, { action: { label: "Undo", onClick: () => updateItems(() => prev.map(touch)) } });
   };
 
   const counts = useMemo(() => {
@@ -217,6 +238,7 @@ function App() {
         <ItemSheet
           item={editing}
           isNew={isNew}
+          tmdbKey={tmdbKey}
           onSave={saveItem}
           onDelete={deleteItem}
           onClose={() => setEditing(null)}
@@ -226,8 +248,14 @@ function App() {
         <SettingsSheet
           theme={theme}
           setTheme={setTheme}
+          tmdbKey={tmdbKey}
+          setTmdbKey={setTmdbKey}
+          session={session}
+          sync={sync}
           items={items}
-          onImport={(list) => replaceAll(list, `Imported ${plural(list.length, "title")}`)}
+          // Restored titles count as edited now, so they win over newer
+          // versions elsewhere: the backup is what you asked for.
+          onImport={(list) => replaceAll(list.map(touch), `Imported ${plural(list.length, "title")}`)}
           onErase={() => replaceAll([], "Everything erased")}
           onClose={() => setSettingsOpen(false)}
         />
@@ -325,6 +353,7 @@ function ItemRow({ item, onOpen, onQuick }) {
           <span style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13, color: "var(--ink-dim)" }}>
             <KindChip kind={item.kind} />
+            {item.year && !progress && <span className="mono">{item.year}</span>}
             {/* Keyed by its text, so it pops each time an episode is ticked. */}
             {progress && <span key={progress} className="mono tvt-pop">{progress}</span>}
             <Stars value={item.rating} />
@@ -341,14 +370,17 @@ function ItemRow({ item, onOpen, onQuick }) {
   );
 }
 
-/* A stand-in poster: initials on a gradient whose hue comes from the
-   title, with a stripe in the kind's colour. Swap in real artwork here. */
+/* The TMDB poster, fading in over a stand-in (initials on a gradient whose
+   hue comes from the title), which is all that shows when there's no
+   poster or it can't load (offline). The stripe is the kind's colour. */
 function Poster({ item, size = 46 }) {
   const hue = useMemo(() => {
     let h = 0;
     for (const ch of item.title.toLowerCase()) h = (h * 31 + ch.codePointAt(0)) % 360;
     return h;
   }, [item.title]);
+  const [failed, setFailed] = useState("");
+  const src = posterUrl(item.poster, size > 60 ? "w342" : "w185");
   const words = item.title.replace(/^(the|a|an)\s+/i, "").split(/\s+/).filter(Boolean);
   const initials = words.slice(0, 2).map((w) => Array.from(w)[0]).join("").toUpperCase();
   return (
@@ -361,6 +393,10 @@ function Poster({ item, size = 46 }) {
       boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)",
     }}>
       {initials || "?"}
+      {src && src !== failed && (
+        <img key={src} src={src} alt="" loading="lazy" onLoad={(e) => { e.currentTarget.style.opacity = 1; }} onError={() => setFailed(src)}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0, transition: "opacity 0.35s ease" }} />
+      )}
       <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 3, background: item.kind === "tv" ? "var(--tv)" : "var(--movie)" }} />
     </span>
   );
@@ -404,13 +440,22 @@ function EmptyState({ meta, filter, onAdd }) {
 }
 
 /* ============ Add / edit sheet ============ */
-function ItemSheet({ item, isNew: isNewProp, onSave, onDelete, onClose }) {
+function ItemSheet({ item, isNew: isNewProp, tmdbKey, onSave, onDelete, onClose }) {
   const [draft, setDraft] = useState(item);
   // Fixed at open: once added the item exists, but the sheet shouldn't
   // turn into "Edit" while it slides away.
   const [isNew] = useState(isNewProp);
   const { ref, closing, close } = useModalDismiss(onClose);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+  // Typing in the title searches TMDB; picking a match stops it.
+  const [searching, setSearching] = useState(false);
+  const search = useTmdbSearch(draft.title, tmdbKey, searching);
+  const pickMatch = (m) => {
+    setDraft((d) => ({ ...d, title: m.title, kind: m.kind, tmdbId: m.tmdbId, poster: m.poster, year: m.year }));
+    setSearching(false);
+  };
+  const unlink = () => setDraft((d) => ({ ...d, tmdbId: null, poster: "", year: "" }));
+  const hint = { fontSize: 12.5, color: "var(--ink-faint)", marginTop: 8, lineHeight: 1.4 };
   const canSave = draft.title.trim().length > 0;
   const save = (e) => {
     e.preventDefault();
@@ -421,10 +466,20 @@ function ItemSheet({ item, isNew: isNewProp, onSave, onDelete, onClose }) {
   return (
     <ModalFrame sheet dismiss={{ ref, closing, close }} label={isNew ? "Add a title" : `Edit ${item.title}`}>
       <form onSubmit={save}>
-        <ModalHead eyebrow={isNew ? "New" : "Edit"} title={draft.title.trim() || "Add a title"} onClose={close} />
+        <ModalHead eyebrow={isNew ? "New" : "Edit"} title={draft.title.trim() || "Add a title"} onClose={close}
+          lead={draft.poster ? <Poster key={draft.poster} item={draft} size={40} /> : null} />
         <Field label="Title" htmlFor="tvt-title">
-          <input id="tvt-title" value={draft.title} onChange={(e) => set("title", e.target.value)}
-            placeholder="e.g. Severance" autoComplete="off" autoCapitalize="words" enterKeyHint="done" maxLength={200} style={fieldStyle()} />
+          <input id="tvt-title" value={draft.title} onChange={(e) => { set("title", e.target.value); setSearching(true); }}
+            placeholder={tmdbKey ? "Search shows and movies" : "e.g. Severance"} autoComplete="off" autoCapitalize="words"
+            enterKeyHint="done" maxLength={200} style={fieldStyle()} />
+          {searching && tmdbKey && draft.title.trim().length >= 2 && <SearchResults state={search} onPick={pickMatch} />}
+          {!searching && draft.tmdbId && (
+            <div className="tvt-pop" style={{ ...hint, display: "flex", gap: 8 }}>
+              <span>From TMDB{draft.year && ` · ${draft.year}`}</span>
+              <button type="button" onClick={unlink} style={{ background: "none", border: "none", padding: 0, color: "var(--ink-dim)", fontSize: 12.5, textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer" }}>Unlink</button>
+            </div>
+          )}
+          {!tmdbKey && isNew && <div style={hint}>Add a TMDB key in Settings to search titles and get posters.</div>}
         </Field>
         <Field label="Type">
           <SegToggle full options={KINDS} value={draft.kind} onChange={(v) => set("kind", v)} label="Type" />
@@ -518,9 +573,20 @@ function RatingInput({ value, onChange }) {
 }
 
 /* ============ Settings ============ */
-function SettingsSheet({ theme, setTheme, items, onImport, onErase, onClose }) {
+function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, session, sync, items, onImport, onErase, onClose }) {
   const { ref, closing, close } = useModalDismiss(onClose);
   const fileRef = useRef(null);
+  const [testing, setTesting] = useState(false);
+  const signedIn = !!session;
+  const note = { fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.5, marginBottom: 10 };
+
+  const testKey = () => {
+    setTesting(true);
+    testTmdbKey(tmdbKey)
+      .then(() => showToast("TMDB key works"))
+      .catch((e) => showToast(e.message))
+      .finally(() => setTesting(false));
+  };
 
   const exportJson = async () => {
     const name = `tv-tracker-${new Date().toISOString().slice(0, 10)}.json`;
@@ -564,7 +630,7 @@ function SettingsSheet({ theme, setTheme, items, onImport, onErase, onClose }) {
   const erase = async () => {
     const ok = await askConfirm({
       title: "Erase everything?",
-      body: `All ${plural(items.length, "title")} will be removed from this device. You can undo straight after.`,
+      body: `All ${plural(items.length, "title")} will be removed from this device${signedIn ? " and your account" : ""}. You can undo straight after.`,
       confirmLabel: "Erase",
       danger: true,
     });
@@ -577,9 +643,27 @@ function SettingsSheet({ theme, setTheme, items, onImport, onErase, onClose }) {
       <Field label="Appearance">
         <SegToggle full options={THEMES} value={theme} onChange={setTheme} label="Appearance" />
       </Field>
+      {cloud && (
+        <Field label="Account">
+          <AccountSection session={session} sync={sync} />
+        </Field>
+      )}
+      <Field label="Title search" htmlFor="tvt-tmdb">
+        <div style={note}>
+          Paste your free TMDB API key to search titles and get posters. Get one at{" "}
+          <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>themoviedb.org → Settings → API</a>.
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input id="tvt-tmdb" value={tmdbKey} onChange={(e) => setTmdbKey(e.target.value.trim())} placeholder="API key or read access token"
+            autoComplete="off" autoCapitalize="off" spellCheck={false} style={{ ...fieldStyle(), flex: 1, minWidth: 0 }} />
+          <button type="button" onClick={testKey} disabled={!tmdbKey || testing} style={{ ...ghostBtn(), opacity: tmdbKey ? 1 : 0.4 }}>{testing ? "Testing…" : "Test"}</button>
+        </div>
+      </Field>
       <Field label="Backup">
-        <div style={{ fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.5, marginBottom: 10 }}>
-          Your list is saved on this device only. Export a copy now and then: Safari can clear a site's data.
+        <div style={note}>
+          {signedIn
+            ? "Your list syncs to your account. A backup file is still worth keeping now and then."
+            : "Your list is saved on this device only. Export a copy now and then: Safari can clear a site's data."}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" onClick={exportJson} style={ghostBtn()}>Export</button>
@@ -592,6 +676,10 @@ function SettingsSheet({ theme, setTheme, items, onImport, onErase, onClose }) {
       </Field>
       <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>
         {plural(items.length, "title")} · v{APP_VERSION}
+      </div>
+      {/* TMDB's terms ask apps using its API to say this. */}
+      <div style={{ fontSize: 11.5, color: "var(--ink-faint)", marginTop: 6, lineHeight: 1.4 }}>
+        Search and posters from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
       </div>
     </ModalFrame>
   );
