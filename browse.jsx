@@ -173,7 +173,7 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
       {watched.length > 0 && (
         <Shelf title="Recently Watched" action={{ label: "See All", onClick: () => onSeeAll("watched") }}>
           {watched.slice(0, 15).map((item) => (
-            <PosterCard key={item.id} tile={item} onOpen={onOpenItem} sub={item.rating ? "★".repeat(item.rating) : item.year || (item.kind === "tv" ? "Show" : "Movie")} />
+            <PosterCard key={item.id} tile={item} onOpen={onOpenItem} sub={item.rating ? starText(item.rating) : item.year || (item.kind === "tv" ? "Show" : "Movie")} />
           ))}
         </Shelf>
       )}

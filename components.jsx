@@ -703,10 +703,14 @@ function BookmarkIcon({ size }) {
 function CheckCircleIcon({ size }) {
   return <Svg size={size}><circle cx="12" cy="12" r="9" /><path d="M8 12.3l2.7 2.7L16 9.6" /></Svg>;
 }
-function StarIcon({ size = 14, filled }) {
+const STAR_PATH = "M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-2.9-5.4 2.9 1.1-6-4.5-4.2 6.1-.8z";
+const STAR_HALF_PATH = "M12 3.2L9.3 8.8l-6.1.8 4.5 4.2-1.1 6 5.4-2.9z"; // its left half
+/* half: an outline with its left half filled, for a half-star rating. */
+function StarIcon({ size = 14, filled, half }) {
   return (
     <svg aria-hidden width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
-      <path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-2.9-5.4 2.9 1.1-6-4.5-4.2 6.1-.8z" />
+      {half && !filled && <path d={STAR_HALF_PATH} fill="currentColor" stroke="none" />}
+      <path d={STAR_PATH} />
     </svg>
   );
 }

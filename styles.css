@@ -1169,9 +1169,29 @@ button:not(:disabled):active {
   scale: 0.96;
   transition-duration: 0.12s;
 }
-button[role="tab"]:active,
-.tvt-star-btn:active {
+button[role="tab"]:active {
   scale: 0.9;
+}
+
+/* Your rating: five big stars across the width. Sideways moves belong to
+   the stars (sliding sets the rating); up and down still scroll. */
+.tvt-rating {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+  height: 68px;
+  border-radius: 18px;
+  background: var(--bg-2);
+  cursor: pointer;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tvt-rating:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+  outline-offset: 2px;
 }
 /* A row as wide as the screen would lurch at the usual press. */
 .tvt-wide-btn:not(:disabled):active {

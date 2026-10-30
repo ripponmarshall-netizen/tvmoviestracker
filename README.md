@@ -60,7 +60,7 @@ Everything is saved on the device first, in `localStorage` under `tvt:v1`, so th
 
 | Key | What | Refreshed |
 | --- | --- | --- |
-| `tvt:tmdb:v1` | Details of titles you've looked at (the latest 400) | Shows daily, movies monthly |
+| `tvt:tmdb:v1` | Details of titles you've looked at (the latest 2,000; synopses only for the ones opened lately) | Shows daily, movies monthly |
 | `tvt:lists:v1` | Explore's lists | After half an hour |
 | `tvt:recs:v1` | "More like this" for the 60 titles you opened last | With the title's details |
 | `tvt-img-v1` (service worker cache) | Posters and stills (the latest 600) | Never: TMDB image files don't change |
@@ -73,9 +73,9 @@ They're only caches: each is dropped first if storage runs short. Pulling down t
 
 **Settings → Import CSV** takes one or more CSV files: your ratings, library, watched history and lists, from a spreadsheet or another tracker's export (Letterboxd, IMDb, Trakt- or TV Time-style). Each file is read by its column names: it needs a *Title* or *Name* column, and uses any of type, year, TMDB or IMDb id (or a TMDB/IMDb URL), rating, status, season and episode, note and date added it finds (`CSV_HEADS` in `importcsv.jsx` lists the names it knows). Comma, semicolon and tab separators all work.
 
-For each file you say what it holds (it guesses from the file name), which decides where titles go when the file has no status column: *Ratings* and *Watched* into Watched, *List* into the Watchlist, *Library* into the Watchlist (or Watching, with progress). A watch history with a row per episode becomes one title at the last episode watched.
+For each file you say what it holds (it guesses from the file name), which decides where titles go when the file has no status column: *Ratings* and *Watched* into Watched, *Library* and *List* into the Watchlist. With *Library*, *List* or *Watched*, a show with episodes watched goes to Watching instead. A watch history with a row per episode becomes one title at the last episode watched. Under each file the sheet lists the columns it read, and above the Import button where the titles will land, so a status or episode column it didn't recognise shows up before anything changes.
 
-Imports merge: titles already in your library (matched by TMDB id, else by name and year) get the file's rating and progress, and move further along but never back (Watchlist → Watching → Watched). Nothing is removed, and Undo puts everything back. Ratings out of 10 or 100 become stars. Afterwards, with a TMDB key, titles without a TMDB id are matched on TMDB (by IMDb id, else by name and year) for posters, runtimes and Up Next; a title it can't match confidently is left as it is.
+Imports merge: titles already in your library (matched by TMDB id, else by name and year) get the file's rating and progress, and move further along but never back (Watchlist → Watching → Watched); a show in your Watchlist that the file gives episode progress moves to Watching. So importing a file again, with the right columns, puts titles where they belong. Nothing is removed, and Undo puts everything back. Ratings out of 10 or 100 become stars, to the nearest half; half stars (Letterboxd's) are kept. Afterwards, with a TMDB key, titles without a TMDB id are matched on TMDB (by IMDb id, else by name and year) for posters, runtimes and Up Next; a title it can't match confidently is left as it is. A lost connection is retried; if the match is cut off (the app closed, or the phone slept), titles with a TMDB id but no poster are filled in the next time the app opens.
 
 Signed in, each title is also a row in `tvt_items`, with the whole item in a `data` column. Devices sync when you sign in, when the app comes back to the foreground or back online, and a moment after each change. They merge title by title, and the newer edit wins. A delete leaves a tombstone row (`deleted = true`) so the other devices drop the title too. Undo and Import count as fresh edits, so they win over what they replace.
 
@@ -84,7 +84,7 @@ Signed in, each title is also a row in `tvt_items`, with the whole item in a `da
   id, kind: "tv" | "movie", title,
   status: "watching" | "watchlist" | "watched",
   season, episode,   // TV only: last episode watched (episode 0 = not started)
-  rating,            // 0–5, 0 = unrated
+  rating,            // 0–5 in half stars, 0 = unrated
   note,
   tmdbId, poster, year, // from TMDB search; null / "" for titles typed in
   added, updated     // ISO dates; `updated` decides which edit wins a sync

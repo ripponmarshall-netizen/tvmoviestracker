@@ -100,7 +100,7 @@ function testTmdbKey(key) {
    stale details still show while fresh ones load. "More like this" comes
    in the same request but is kept for this visit only. */
 const DETAILS_STORE = "tvt:tmdb:v1";
-const DETAILS_MAX = 400; // past this, the longest-unrefreshed are dropped
+const DETAILS_MAX = 2000; // past this, the longest-unrefreshed aren't saved
 const detailsKey = (kind, id) => `${kind}:${id}`;
 let detailsMem = null;
 const detailsInflight = new Map();
@@ -116,17 +116,24 @@ function detailsAll() {
   return detailsMem;
 }
 let detailsSaveTimer = 0;
+/* Only the saved copy is trimmed, never the one in memory: a screen that
+   counts more titles than DETAILS_MAX (Profile, on a big library) would
+   otherwise see them dropped, fetch them again, and go round for ever.
+   The synopsis is most of a title's size, so it's saved only for the
+   titles with "More like this" saved (the ones opened lately); the sheet
+   fetches it again for the rest. */
 function saveDetailsSoon() {
   clearTimeout(detailsSaveTimer);
   detailsSaveTimer = setTimeout(() => {
     const all = detailsAll();
-    const keys = Object.keys(all);
-    if (keys.length > DETAILS_MAX) {
-      keys.sort((a, b) => all[a].at - all[b].at).slice(0, keys.length - DETAILS_MAX).forEach((k) => delete all[k]);
+    const recs = recsAll();
+    const out = {};
+    for (const k of Object.keys(all).sort((a, b) => all[b].at - all[a].at).slice(0, DETAILS_MAX)) {
+      out[k] = recs.has(k) ? all[k] : { ...all[k], overview: "", tagline: "" };
     }
     // It's only a cache: if storage is full, drop it rather than leave
     // the list itself (tvt:v1) without room to save.
-    try { localStorage.setItem(DETAILS_STORE, JSON.stringify(all)); } catch { try { localStorage.removeItem(DETAILS_STORE); } catch {} }
+    try { localStorage.setItem(DETAILS_STORE, JSON.stringify(out)); } catch { try { localStorage.removeItem(DETAILS_STORE); } catch {} }
   }, 500);
 }
 /* "More like this" for the titles you've opened lately, kept on the device
