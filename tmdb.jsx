@@ -340,6 +340,37 @@ function nextEpisode(item, d) {
   return { season, episode, aired, date };
 }
 
+/* The latest episode out, as progress: where a show stands once you've
+   seen everything aired. null without details, or before anything has
+   aired. */
+function latestAired(d) {
+  return d?.seasons && d.last ? { season: d.last[0], episode: d.last[1] } : null;
+}
+
+/* fetchDetailsFor — details for each library title in `list` (fetched
+   afresh when the saved ones are stale), four at a time. Resolves with a
+   Map of item id → details; a title whose fetch fails keeps its stale
+   details, or is left out if it has none. */
+async function fetchDetailsFor(list, key) {
+  const out = new Map();
+  const queue = list.filter((i) => i.tmdbId);
+  const worker = async () => {
+    while (queue.length) {
+      const i = queue.shift();
+      let d = cachedDetails(i.kind, i.tmdbId);
+      if (key && detailsStale(d)) {
+        try { d = await loadDetails(i.kind, i.tmdbId, key); } catch (e) {
+          // A bad key fails every request: stop rather than try them all.
+          if (/key/i.test(e.message || "")) queue.length = 0;
+        }
+      }
+      if (d) out.set(i.id, d);
+    }
+  };
+  await Promise.all([0, 1, 2, 3].map(worker));
+  return out;
+}
+
 /* ============ Lists (Explore) ============
    A TMDB list (trending, popular, …) as tiles, kept on the device so
    Explore opens straight away (and offline) with what it showed last.
@@ -507,5 +538,5 @@ function PosterThumb({ path }) {
 Object.assign(window, {
   posterUrl, backdropUrl, fmtDate, fmtRuntime, fmtCount, tmdbTile, searchTitles, testTmdbKey,
   cachedDetails, useTitleDetails, usePrefetchDetails, useTmdbList, useTmdbSearch, refreshTmdb, tmdbGet,
-  episodesWatched, airedEpisodes, isFinished, nextEpisode, SearchResults, PosterThumb,
+  episodesWatched, airedEpisodes, isFinished, nextEpisode, latestAired, fetchDetailsFor, SearchResults, PosterThumb,
 });

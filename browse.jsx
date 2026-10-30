@@ -114,70 +114,116 @@ function upNextInfo(item, d) {
   return { line, sub, progress, canTick: true, tick: "Watched" };
 }
 
-/* Where a title in Watching goes on the Watching screen. A show you haven't
-   started is "unstarted". Otherwise it's "recent" if you've watched it (or
-   added it) in the last RECENT_DAYS, or a new episode has come out since
-   you last watched, and "archived" if not. */
+/* Where a title in Watching goes on the Watching screen:
+   - "unstarted" (Not Started): a show still at S1 · E0, so no episode is
+     ticked yet (an import that only had the show's name lands here).
+   - "caughtup" (Caught Up): a show you've seen everything aired of, as far
+     as TMDB says. It comes back to Up Next when a new episode airs.
+   - "recent" (Up Next): watched or added in the last RECENT_DAYS, or a new
+     episode is out since you last watched.
+   - "onhold" (On Hold): the rest, not watched in a while. */
 const RECENT_DAYS = 30;
+const lastActive = (i) => Math.max(isoTime(i.lastWatched), isoTime(i.added));
 function watchingGroup(item, d, now = Date.now()) {
   if (item.kind === "tv" && item.season === 1 && item.episode === 0) return "unstarted";
+  if (item.kind === "tv" && d?.seasons && !nextEpisode(item, d)?.aired) return "caughtup";
   const span = RECENT_DAYS * DAY_MS;
-  const last = Math.max(isoTime(item.lastWatched), isoTime(item.added));
+  const last = lastActive(item);
   if (now - last < span) return "recent";
   const aired = isoTime(d?.lastDate);
-  if (item.kind === "tv" && aired > last && now - aired < span && nextEpisode(item, d)?.aired) return "recent";
-  return "archived";
+  if (item.kind === "tv" && aired > last && now - aired < span) return "recent";
+  return "onhold";
 }
-const lastActive = (i) => Math.max(isoTime(i.lastWatched), isoTime(i.added));
+// Names for the groups, for menus and toasts.
+const GROUP_NAMES = { recent: "Up Next", unstarted: "Not Started", caughtup: "Caught Up", onhold: "On Hold" };
+
+/* A long list of rows, 20 at a time with a button for more, so a big
+   library doesn't draw hundreds of rows at once. */
+function LongList({ items, render, leaving, step = 20 }) {
+  const [shown, setShown] = useStateB(step);
+  const more = Math.min(step * 2, items.length - shown);
+  return (
+    <>
+      {items.slice(0, shown).map((item, i) => (
+        <AnimatedRow key={item.id} index={i % step} leaving={leaving?.(item.id)}>{render(item)}</AnimatedRow>
+      ))}
+      {more > 0 && (
+        <button type="button" onClick={() => setShown((n) => n + step * 2)} style={{ ...ghostBtn(), width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8 }}>
+          Show {more} More <span className="mono" style={{ color: "var(--ink-faint)" }}>· {items.length - shown} left</span>
+          <ChevronIcon dir="down" size={13} />
+        </button>
+      )}
+    </>
+  );
+}
 
 /* ============ Watching ============
-   Up next from what you've watched lately, most recent first: the latest
-   as a big card, the rest as rows. Then shows you haven't started, your
-   watchlist, titles like your recent ones, what you've finished lately,
-   and, folded away, what you haven't watched in a while. */
-function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSeeAll, onExplore }) {
+   Up Next from what you've watched lately, most recent first: the latest
+   as a big card, the rest as rows. Then shows you haven't started, ones
+   you're caught up on, your watchlist, titles like your recent ones, what
+   you've finished lately and what's on hold. The lists fold away under
+   their headers (remembered), and each has a "…" menu for all its shows. */
+function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSeeAll, onExplore, onMore, onBulk }) {
   const watching = items.filter((i) => i.status === "watching");
-  usePrefetchDetails(watching, tmdbKey, true);
-  const [archiveOpen, setArchiveOpen] = useStateB(false);
+  const pending = usePrefetchDetails(watching, tmdbKey, true);
   // Order fixed while you're here (as on the list screens), so a card you
   // tick doesn't jump under your finger. New ones go on top.
   const orderRef = useRefB(null);
   if (!orderRef.current) orderRef.current = byRecent(watching).map((i) => i.id);
   const ordered = [...watching].sort((a, b) => orderRef.current.indexOf(a.id) - orderRef.current.indexOf(b.id));
   const now = Date.now();
-  const groups = { recent: [], unstarted: [], archived: [] };
-  for (const i of ordered) groups[watchingGroup(i, cachedDetails(i.kind, i.tmdbId), now)].push(i);
+  const dOf = (i) => cachedDetails(i.kind, i.tmdbId);
+  const groups = { recent: [], unstarted: [], caughtup: [], onhold: [] };
+  for (const i of ordered) groups[watchingGroup(i, dOf(i), now)].push(i);
   const [hero, ...rest] = groups.recent;
-  const archived = groups.archived.sort((a, b) => lastActive(b) - lastActive(a));
+  // Not Started: the shows on air most lately first (likely the ones
+  // you're watching now). Caught Up: the next episode soonest first.
+  const unstarted = [...groups.unstarted].sort((a, b) => isoTime(dOf(b)?.lastDate) - isoTime(dOf(a)?.lastDate) || a.title.localeCompare(b.title));
+  const nextAt = (i) => isoTime(dOf(i)?.next?.date) || Infinity;
+  const caughtup = [...groups.caughtup].sort((a, b) => nextAt(a) - nextAt(b) || isoTime(dOf(b)?.lastDate) - isoTime(dOf(a)?.lastDate));
+  const onhold = [...groups.onhold].sort((a, b) => lastActive(b) - lastActive(a));
   const watchlist = byRecent(items.filter((i) => i.status === "watchlist"));
   const watched = byRecent(items.filter((i) => i.status === "watched"));
-  const seeds = byRecent(items.filter((i) => i.tmdbId && i.status !== "watchlist")).slice(0, 2);
+  const seeds = byRecent(items.filter((i) => i.tmdbId && i.status !== "watchlist" && !(i.kind === "tv" && i.season === 1 && i.episode === 0))).slice(0, 2);
   const lib = useLibraryIndex(items);
-  // Ticking a movie (or a finished show) moves it to Watched: fold it away.
+  // A tick that moves a row to another list (a movie or finished show to
+  // Watched, a first episode out of Not Started) folds it away first.
   const [isLeaving, foldAway] = useFoldAway(onAdvance);
-  const tick = (item) => (item.kind === "tv" && nextEpisode(item, cachedDetails("tv", item.tmdbId)) ? onAdvance(item.id) : foldAway(item.id));
+  const tick = (item, group) => {
+    const moves = group !== "recent" || !(item.kind === "tv" && nextEpisode(item, dOf(item)));
+    return moves ? foldAway(item.id) : onAdvance(item.id);
+  };
+  const row = (group) => (item) => (
+    <UpNextRow item={item} d={dOf(item)} onOpen={onOpenItem} onTick={() => tick(item, group)} onMore={() => onMore(item)}
+      lastWatched={group === "onhold" ? lastActive(item) : null} />
+  );
+  const bulk = (group, list) => () => onBulk(group, list.map((i) => i.id));
 
   return (
     <main className="tvt-view tvt-page" style={{ padding: PAGE_PAD }}>
-      <ScreenTitle title="Watching" />
+      <ScreenTitle title="Watching" detail={pending ? "Updating…" : null} />
       {hero ? (
-        <section style={{ marginBottom: 26 }}>
-          <UpNextHero item={hero} d={cachedDetails(hero.kind, hero.tmdbId)} onOpen={onOpenItem} onTick={() => onAdvance(hero.id)} />
+        <section style={{ marginBottom: 22 }}>
+          <SectionHeader title="Up Next" detail={groups.recent.length} />
+          <UpNextHero item={hero} d={dOf(hero)} onOpen={onOpenItem} onTick={() => onAdvance(hero.id)} onMore={() => onMore(hero)} />
           {rest.map((item, i) => (
-            <AnimatedRow key={item.id} index={i} leaving={isLeaving(item.id)}>
-              <UpNextRow item={item} d={cachedDetails(item.kind, item.tmdbId)} onOpen={onOpenItem} onTick={() => tick(item)} />
-            </AnimatedRow>
+            <AnimatedRow key={item.id} index={i} leaving={isLeaving(item.id)}>{row("recent")(item)}</AnimatedRow>
           ))}
         </section>
       ) : watching.length ? (
-        <Card style={{ textAlign: "center", padding: "22px 20px", marginBottom: 26 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Nothing watched lately</div>
-          <div style={{ fontSize: 13.5, color: "var(--ink-dim)", lineHeight: 1.5, margin: "6px auto 0", maxWidth: 300 }}>
-            {groups.unstarted.length ? "Start a show below, or pick one back up from the archive." : "Pick something back up from the archive below."}
+        <Card style={{ textAlign: "center", padding: "22px 20px", marginBottom: 22 }}>
+          <span className="tvt-pop" style={{ width: 52, height: 52, borderRadius: 999, background: "var(--fill)", color: "var(--accent)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 10, animationDelay: "0.2s" }}>
+            <TvIcon size={24} />
+          </span>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Nothing up next</div>
+          <div style={{ fontSize: 13.5, color: "var(--ink-dim)", lineHeight: 1.5, margin: "6px auto 0", maxWidth: 320 }}>
+            {unstarted.length
+              ? `Your ${plural(unstarted.length, "show")} without an episode ticked ${unstarted.length === 1 ? "is" : "are"} under Not Started. Tick the first episode, or use ••• to pick where you are or mark one caught up.`
+              : caughtup.length ? "You're caught up. Shows come back here when a new episode airs." : "Pick something back up from On Hold below."}
           </div>
         </Card>
       ) : (
-        <Card style={{ textAlign: "center", padding: "30px 20px", marginBottom: 26 }}>
+        <Card style={{ textAlign: "center", padding: "30px 20px", marginBottom: 22 }}>
           <span className="tvt-pop" style={{ width: 56, height: 56, borderRadius: 999, background: "var(--fill)", color: "var(--ink-dim)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12, animationDelay: "0.2s" }}>
             <PlayIcon size={26} />
           </span>
@@ -189,12 +235,18 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
         </Card>
       )}
 
-      {groups.unstarted.length > 0 && (
-        <Shelf title="Not Started">
-          {groups.unstarted.map((item) => (
-            <PosterCard key={item.id} tile={item} onOpen={onOpenItem} sub={seasonsLine(item, cachedDetails("tv", item.tmdbId))} />
-          ))}
-        </Shelf>
+      {unstarted.length > 0 && (
+        <FoldSection id="watching:unstarted" title="Not Started" count={unstarted.length} defaultOpen={!hero} onMenu={bulk("unstarted", unstarted)}
+          note="No episode ticked yet. Tick the first one, or ••• to pick the episode you're on or mark a show caught up.">
+          <LongList items={unstarted} leaving={isLeaving} render={row("unstarted")} />
+        </FoldSection>
+      )}
+
+      {caughtup.length > 0 && (
+        <FoldSection id="watching:caughtup" title="Caught Up" count={caughtup.length} onMenu={bulk("caughtup", caughtup)}
+          note="You've seen everything that's out. A show moves back to Up Next when its next episode airs.">
+          <LongList items={caughtup} leaving={isLeaving} render={row("caughtup")} />
+        </FoldSection>
       )}
 
       {watchlist.length > 0 && (
@@ -215,38 +267,20 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
         </Shelf>
       )}
 
-      {archived.length > 0 && (
-        <section style={{ marginBottom: 26 }}>
-          <button type="button" onClick={() => setArchiveOpen((o) => !o)} aria-expanded={archiveOpen} style={{
-            width: "100%", display: "flex", alignItems: "center", gap: 8, margin: "0 0 4px", padding: "4px 4px 6px",
-            background: "none", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
-          }}>
-            <span style={{ flex: 1, fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em" }}>Archived</span>
-            <span className="mono" style={{ fontSize: 13, color: "var(--ink-faint)" }}>{archived.length}</span>
-            <span aria-hidden style={{ display: "inline-flex", color: "var(--ink-faint)", transform: archiveOpen ? "rotate(90deg)" : "none", transition: "transform 0.25s var(--ease-snappy)" }}>
-              <ChevronIcon size={13} />
-            </span>
-          </button>
-          <div style={{ fontSize: 12.5, color: "var(--ink-dim)", lineHeight: 1.4, margin: "0 4px 10px" }}>
-            Not watched in the last {RECENT_DAYS} days. Tick an episode and it's back in Up Next; a new episode brings a show back too.
-          </div>
-          <Collapse open={archiveOpen}>
-            {archived.map((item) => (
-              <div key={item.id} style={{ marginBottom: 8 }}>
-                <UpNextRow item={item} d={cachedDetails(item.kind, item.tmdbId)} onOpen={onOpenItem} onTick={() => onAdvance(item.id)} lastWatched={lastActive(item)} />
-              </div>
-            ))}
-          </Collapse>
-        </section>
+      {onhold.length > 0 && (
+        <FoldSection id="watching:onhold" title="On Hold" count={onhold.length} onMenu={bulk("onhold", onhold)}
+          note={`Not watched in the last ${RECENT_DAYS} days. Tick an episode and it's back in Up Next; a new episode brings a show back too.`}>
+          <LongList items={onhold} leaving={isLeaving} render={row("onhold")} />
+        </FoldSection>
       )}
     </main>
   );
 }
 
 /* The title you watched most recently, big: its artwork, what's next and a
-   button to tick it off. The tick sits beside the card's own button
-   (buttons can't nest), over its corner. */
-function UpNextHero({ item, d, onOpen, onTick }) {
+   button to tick it off. The tick and the menu sit beside the card's own
+   button (buttons can't nest), over its corners. */
+function UpNextHero({ item, d, onOpen, onTick, onMore }) {
   const info = upNextInfo(item, d);
   return (
     <div style={{ position: "relative", marginBottom: 10 }}>
@@ -258,7 +292,7 @@ function UpNextHero({ item, d, onOpen, onTick }) {
         <Backdrop path={d?.backdrop} poster={item.poster} title={item.title} size="w1280" />
         <span aria-hidden style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.85) 100%)" }} />
         <span style={{ position: "absolute", left: 16, right: info.canTick ? 132 : 16, bottom: 14 }}>
-          <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(255,255,255,0.72)" }}>Up Next</span>
+          <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(255,255,255,0.72)" }}>{item.kind === "tv" ? "Next episode" : "Movie"}</span>
           <span style={{ display: "block", fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
           <span key={info.line} className="tvt-pop" style={{ fontSize: 13.5, color: "rgba(255,255,255,0.86)", marginTop: 3 }}>
             <span className="mono" style={{ fontWeight: 600 }}>{info.line}</span>{info.sub && ` · ${info.sub}`}
@@ -266,6 +300,11 @@ function UpNextHero({ item, d, onOpen, onTick }) {
           {info.progress != null && <ProgressBar value={info.progress} color="#fff" height={3} style={{ marginTop: 10, background: "rgba(255,255,255,0.25)" }} />}
         </span>
       </button>
+      <button type="button" onClick={onMore} aria-label={`${item.title} options`} style={{
+        position: "absolute", top: 12, right: 12, width: 36, height: 36, borderRadius: 999, border: "none", padding: 0,
+        display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff",
+        background: "rgba(0,0,0,0.38)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+      }}><MoreIcon size={18} /></button>
       {info.canTick && (
         <button type="button" onClick={onTick} aria-label={info.tick === "Watched" ? `Mark ${info.line} watched` : `Finish ${item.title}`} style={{
           position: "absolute", right: 14, bottom: 14, display: "inline-flex", alignItems: "center", gap: 6,
@@ -278,18 +317,20 @@ function UpNextHero({ item, d, onOpen, onTick }) {
   );
 }
 
-/* An Up Next row. With `lastWatched` (archived rows), when you last watched
-   it stands in for the note under the episode. */
-function UpNextRow({ item, d, onOpen, onTick, lastWatched }) {
+/* An Up Next row: a still, the title, the next episode and how far along
+   you are, with a tick for the next episode and a "…" menu. With
+   `lastWatched` (On Hold rows), when you last watched it stands in for the
+   note under the episode. */
+function UpNextRow({ item, d, onOpen, onTick, onMore, lastWatched }) {
   const info = upNextInfo(item, d);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 18, padding: 10 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 18, padding: "10px 8px 10px 10px" }}>
       <button type="button" className="tvt-wide-btn" onClick={() => onOpen(item)} style={{
         flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12,
         background: "transparent", border: "none", padding: 0, margin: 0,
         textAlign: "left", cursor: "pointer", color: "inherit", font: "inherit",
       }}>
-        <span style={{ position: "relative", display: "block", width: 112, aspectRatio: "16 / 9", borderRadius: 10, overflow: "hidden", flexShrink: 0 }}>
+        <span style={{ position: "relative", display: "block", width: 104, aspectRatio: "16 / 9", borderRadius: 10, overflow: "hidden", flexShrink: 0 }}>
           <Backdrop path={d?.backdrop} poster={item.poster} title={item.title} size="w300" />
         </span>
         <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -306,6 +347,7 @@ function UpNextRow({ item, d, onOpen, onTick, lastWatched }) {
           ...iconBtn(40), background: "color-mix(in oklab, var(--accent) 18%, transparent)", color: "var(--accent)",
         }}><CheckIcon size={18} /></button>
       )}
+      {onMore && <MoreButton onClick={onMore} label={`${item.title} options`} size={34} style={{ background: "transparent" }} />}
     </div>
   );
 }
@@ -489,14 +531,14 @@ function TmdbShelf({ row, tmdbKey, statusOf, onOpen }) {
 }
 
 /* An iOS search field. Return closes the keyboard. */
-function SearchField({ value, onChange }) {
+function SearchField({ value, onChange, placeholder = "Shows, Movies and More" }) {
   return (
     <form role="search" onSubmit={(e) => { e.preventDefault(); e.currentTarget.querySelector("input")?.blur(); }} style={{ position: "relative", marginBottom: 12 }}>
       <span aria-hidden style={{ position: "absolute", left: 10, top: 0, bottom: 0, display: "flex", alignItems: "center", color: "var(--ink-faint)", pointerEvents: "none" }}>
         <SearchIcon />
       </span>
       <input type="search" className="tvt-search" value={value} onChange={(e) => onChange(e.target.value)}
-        placeholder="Shows, Movies and More" aria-label="Search shows and movies" enterKeyHint="search"
+        placeholder={placeholder} aria-label={placeholder} enterKeyHint="search"
         autoComplete="off" autoCorrect="off" spellCheck={false}
         style={{ width: "100%", background: "var(--fill)", border: "none", borderRadius: 12, padding: "10px 38px 10px 35px", fontSize: 16, color: "var(--ink)" }} />
       {value && (
@@ -545,4 +587,4 @@ function SearchList({ state, kind, statusOf, onOpen }) {
   );
 }
 
-Object.assign(window, { titleKey, useLibraryIndex, Backdrop, PosterCard, Shelf, upNextInfo, watchingGroup, WatchingView, ExploreView });
+Object.assign(window, { titleKey, useLibraryIndex, Backdrop, PosterCard, Shelf, upNextInfo, watchingGroup, GROUP_NAMES, LongList, WatchingView, ExploreView, SearchField });

@@ -1,6 +1,6 @@
 /* components.jsx — shared primitives: cards, buttons, segmented control,
-   screen and section titles, sheets and dialogs, toasts, list-row motion,
-   icons. Ported from the
+   dropdown picker, fold-away sections, screen and section titles, sheets,
+   dialogs and action menus, toasts, list-row motion, icons. Ported from the
    Night Shift Calculator so the two apps look and move the same. */
 const { useState: useStateC, useEffect: useEffectC, useRef: useRefC } = React;
 
@@ -271,6 +271,151 @@ function ConfirmDialog({ title, body, confirmLabel, danger, onDone }) {
           : primaryBtn()}>{confirmLabel || "OK"}</button>
       </div>
     </ModalFrame>
+  );
+}
+
+/* showMenu — an iOS action sheet: a list of actions under an optional
+   title, and Cancel. Each action is { label, sub, icon, danger, disabled,
+   run }; `run` is called once the sheet has slid away, so it can open
+   another sheet. Falsy entries are skipped, so a list can use `cond &&`.
+   MenuHost (mounted once) renders it. */
+function showMenu(opts) {
+  window.dispatchEvent(new CustomEvent("tvt-menu", { detail: opts || {} }));
+}
+function MenuHost() {
+  const [menu, setMenu] = useStateC(null);
+  useEffectC(() => {
+    const onMenu = (e) => setMenu({ id: Date.now(), ...e.detail });
+    window.addEventListener("tvt-menu", onMenu);
+    return () => window.removeEventListener("tvt-menu", onMenu);
+  }, []);
+  if (!menu) return null;
+  return <ActionSheet key={menu.id} {...menu} onDone={() => setMenu(null)} />;
+}
+function ActionSheet({ title, sub, actions = [], onDone }) {
+  const chosen = useRefC(null);
+  const { ref, closing, close } = useModalDismiss(() => {
+    onDone();
+    chosen.current?.();
+  });
+  const pick = (a) => {
+    if (closing) return;
+    chosen.current = a.run;
+    close();
+  };
+  const shown = actions.filter(Boolean);
+  return (
+    <ModalFrame sheet dismiss={{ ref, closing, close }} zIndex={85} maxWidth={460} label={title || "Actions"}>
+      {(title || sub) && (
+        <div style={{ textAlign: "center", padding: "0 8px 14px" }}>
+          {title && <div style={{ fontSize: 15, fontWeight: 600, overflowWrap: "anywhere" }}>{title}</div>}
+          {sub && <div style={{ fontSize: 13, color: "var(--ink-dim)", marginTop: 3, lineHeight: 1.4 }}>{sub}</div>}
+        </div>
+      )}
+      <div style={{ background: "var(--bg-2)", borderRadius: 16, overflow: "hidden" }}>
+        {shown.map((a, i) => (
+          <button key={a.label} type="button" className="tvt-wide-btn" disabled={a.disabled} onClick={() => pick(a)} style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", margin: 0, minHeight: 52,
+            background: "transparent", border: "none", borderTop: i ? "1px solid var(--line-soft)" : "none",
+            color: a.danger ? "var(--danger)" : "var(--ink)", textAlign: "left", font: "inherit", cursor: "pointer",
+            opacity: a.disabled ? 0.4 : 1,
+          }}>
+            {a.icon && <span aria-hidden style={{ display: "inline-flex", width: 22, justifyContent: "center", color: a.danger ? "var(--danger)" : "var(--accent)" }}>{a.icon}</span>}
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 16 }}>{a.label}</span>
+              {a.sub && <span style={{ display: "block", fontSize: 12.5, color: "var(--ink-dim)", marginTop: 2, lineHeight: 1.35 }}>{a.sub}</span>}
+            </span>
+          </button>
+        ))}
+      </div>
+      <button type="button" onClick={close} style={{ ...ghostBtn(), width: "100%", marginTop: 10, padding: 14, borderRadius: 16, fontSize: 16, fontWeight: 600 }}>Cancel</button>
+    </ModalFrame>
+  );
+}
+
+/* A round "…" button that opens a menu. */
+function MoreButton({ onClick, label = "More", size = 36, style }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={label} title={label} style={{ ...iconBtn(size), color: "var(--ink-dim)", ...style }}>
+      <MoreIcon size={18} />
+    </button>
+  );
+}
+
+/* useFold — whether a fold-away section is open, remembered on the device
+   (tvt:fold:v1) once you've opened or closed it; `fallback` until then. */
+const FOLD_KEY = "tvt:fold:v1";
+function useFold(id, fallback) {
+  const read = () => {
+    try { return (JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {})[id]; } catch { return undefined; }
+  };
+  const [saved, setSaved] = useStateC(read);
+  const open = typeof saved === "boolean" ? saved : fallback;
+  const toggle = () => {
+    const next = !open;
+    setSaved(next);
+    try {
+      const all = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {};
+      all[id] = next;
+      localStorage.setItem(FOLD_KEY, JSON.stringify(all));
+    } catch {}
+  };
+  return [open, toggle];
+}
+
+/* A turning chevron for anything that opens and closes: down when open,
+   right when shut. */
+function FoldChevron({ open, size = 13 }) {
+  return (
+    <span aria-hidden style={{ display: "inline-flex", color: "var(--ink-faint)", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.3s var(--ease-snappy)" }}>
+      <ChevronIcon size={size} />
+    </span>
+  );
+}
+
+/* FoldSection — a titled section that folds away under its header, with
+   a count, a note and an optional "…" menu beside it. Remembered per `id`. */
+function FoldSection({ id, title, count, note, defaultOpen = false, onMenu, menuLabel, children }) {
+  const [open, toggle] = useFold(id, defaultOpen);
+  return (
+    <section style={{ marginBottom: 22 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 4px" }}>
+        <button type="button" onClick={toggle} aria-expanded={open} style={{
+          flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, padding: "6px 4px",
+          background: "none", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
+        }}>
+          <span style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
+          {count != null && <span key={count} className="mono tvt-pop" style={{ fontSize: 13, color: "var(--ink-faint)" }}>{count}</span>}
+          <span style={{ flex: 1 }} />
+          <FoldChevron open={open} />
+        </button>
+        {onMenu && <MoreButton onClick={onMenu} label={menuLabel || `${title} options`} size={34} />}
+      </div>
+      {note && <div style={{ fontSize: 12.5, color: "var(--ink-dim)", lineHeight: 1.4, margin: "0 4px 10px" }}>{note}</div>}
+      <Collapse open={open}>{children}</Collapse>
+    </section>
+  );
+}
+
+/* Picker — a native dropdown dressed as a tile: a caption, the choice and
+   a chevron. The real <select> lies invisibly on top, so a tap opens the
+   iPhone's own picker wheel. Options are { v, l } (l: the list's wording;
+   `short`, if given, what the tile shows). */
+function Picker({ label, value, options, onChange, style }) {
+  const cur = options.find((o) => String(o.v) === String(value));
+  return (
+    <div className="tvt-picker" style={{ position: "relative", background: "var(--bg-2)", borderRadius: 14, padding: "8px 34px 9px 12px", minWidth: 0, ...style }}>
+      <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>{label}</div>
+      <div key={String(value)} className="mono tvt-pop" style={{ fontSize: 17, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cur ? cur.short ?? cur.l : String(value)}</div>
+      <span aria-hidden style={{ position: "absolute", right: 12, top: "50%", marginTop: -7, display: "inline-flex", color: "var(--ink-dim)" }}>
+        <ChevronIcon dir="down" size={14} />
+      </span>
+      <select value={String(value)} onChange={(e) => onChange(e.target.value)} aria-label={label} style={{
+        position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, fontSize: 16, cursor: "pointer", appearance: "none", WebkitAppearance: "none",
+      }}>
+        {options.map((o) => <option key={String(o.v)} value={String(o.v)}>{o.l}</option>)}
+      </select>
+    </div>
   );
 }
 
@@ -740,16 +885,55 @@ function ActivityIcon({ size = 28 }) {
     </svg>
   );
 }
+const CHEVRONS = { left: "M15 5l-7 7 7 7", right: "M9 5l7 7-7 7", down: "M5 9l7 7 7-7", up: "M5 15l7-7 7 7" };
 function ChevronIcon({ size = 14, dir = "right" }) {
-  return <Svg size={size} sw={2.2}><path d={dir === "left" ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} /></Svg>;
+  return <Svg size={size} sw={2.2}><path d={CHEVRONS[dir] || CHEVRONS.right} /></Svg>;
+}
+function MoreIcon({ size = 18 }) {
+  return (
+    <svg aria-hidden width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="5.5" cy="12" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="18.5" cy="12" r="1.9" />
+    </svg>
+  );
+}
+function TvIcon({ size }) {
+  return <Svg size={size}><rect x="3" y="5.5" width="18" height="12.5" rx="2.5" /><path d="M8.5 21h7" /></Svg>;
+}
+function FilmIcon({ size }) {
+  return <Svg size={size}><rect x="4" y="3.5" width="16" height="17" rx="2.5" /><path d="M8 3.5v17M16 3.5v17M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4" /></Svg>;
+}
+function TrashIcon({ size }) {
+  return <Svg size={size}><path d="M4.5 7h15M10 4h4M6.5 7l1 13h9l1-13M10 11v6M14 11v6" /></Svg>;
+}
+function PencilIcon({ size }) {
+  return <Svg size={size}><path d="M15.5 5.5l3 3L8 19l-4 1 1-4z" /></Svg>;
+}
+function ForwardIcon({ size }) {
+  return <Svg size={size}><path d="M5 6l7 6-7 6zM13 6l7 6-7 6z" /></Svg>;
+}
+function UploadIcon({ size }) {
+  return <Svg size={size}><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v5h14v-5" /></Svg>;
+}
+function PaletteIcon({ size }) {
+  return <Svg size={size}><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.8-.8 1.8-1.7 0-1.4-1.3-1.6-1.3-2.8 0-1 .8-1.6 1.8-1.6h2a4.2 4.2 0 0 0 4.2-4.2c0-3.7-3.8-6.7-8.5-6.7z" /><circle cx="7.6" cy="11.5" r="1" /><circle cx="10" cy="7.6" r="1" /><circle cx="14.6" cy="7.8" r="1" /></Svg>;
+}
+function KeyIcon({ size }) {
+  return <Svg size={size}><circle cx="8" cy="15" r="4" /><path d="M11 12l8-8M16 7l2.5 2.5M14 9l2 2" /></Svg>;
+}
+function CloudIcon({ size }) {
+  return <Svg size={size}><path d="M7 18.5h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 9.6 4.5 4.5 0 0 0 7 18.5z" /></Svg>;
+}
+function ArchiveIcon({ size }) {
+  return <Svg size={size}><rect x="3.5" y="4.5" width="17" height="4.5" rx="1" /><path d="M5 9v10.5h14V9M10 13h4" /></Svg>;
 }
 
 Object.assign(window, {
   Card, SegToggle, iconBtn, primaryBtn, ghostBtn, accentBtn, fieldStyle,
   prefersReducedMotion, useFoldAway, AnimatedRow, Collapse,
-  showToast, ToastHost, askConfirm, ConfirmHost,
-  ScreenTitle, SectionHeader, ProgressBar,
+  showToast, ToastHost, askConfirm, ConfirmHost, showMenu, MenuHost, MoreButton,
+  useFold, FoldChevron, FoldSection, Picker, ScreenTitle, SectionHeader, ProgressBar,
   ModalFrame, ModalHead, springTo, useModalDismiss, PullToRefresh, downloadBlob,
   XIcon, PlusIcon, MinusIcon, GearIcon, PlayIcon, BookmarkIcon, CheckCircleIcon, StarIcon,
-  CompassIcon, PersonIcon, CameraIcon, SearchIcon, CheckIcon, ChevronIcon, ActivityIcon,
+  CompassIcon, PersonIcon, CameraIcon, SearchIcon, CheckIcon, ChevronIcon, ActivityIcon, MoreIcon,
+  TvIcon, FilmIcon, TrashIcon, PencilIcon, ForwardIcon, UploadIcon, PaletteIcon, KeyIcon, CloudIcon, ArchiveIcon,
 });

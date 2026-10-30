@@ -1,4 +1,4 @@
--- TV & Movie Tracker: the tables behind sign-in and sync.
+-- pree-it: the tables behind sign-in and sync.
 -- Run once in the Supabase SQL editor (or as a migration). Safe to share a
 -- project with other apps: every name is prefixed tvt_ and every row is
 -- locked to its owner by row-level security.
@@ -20,12 +20,15 @@ create table if not exists public.tvt_profiles (
   user_id uuid primary key default auth.uid() references auth.users (id) on delete cascade,
   tmdb_key text,
   avatar text,
+  username text,
   updated_at timestamptz not null default now()
 );
 
 -- Added in v1.5: the profile picture, a small JPEG as a data: URL (about
 -- 30 KB). Re-running this file on an existing project adds it.
 alter table public.tvt_profiles add column if not exists avatar text;
+-- Added in v1.6: the username Profile shows.
+alter table public.tvt_profiles add column if not exists username text;
 
 alter table public.tvt_items enable row level security;
 alter table public.tvt_profiles enable row level security;

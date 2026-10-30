@@ -2,7 +2,7 @@
    and the tab bar */
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.6.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -119,6 +119,7 @@ function loadState() {
     explore: pick(s.explore, FILTERS, "all"),
     tmdbKey: typeof s.tmdbKey === "string" ? s.tmdbKey : "",
     avatar: cleanAvatar(s.avatar),
+    username: cleanUsername(s.username),
   };
 }
 function saveState(state) {
@@ -160,6 +161,8 @@ function App() {
   const [query, setQuery] = useState(""); // Explore's search
   const [tmdbKey, setTmdbKey] = useState(initial.tmdbKey);
   const [avatar, setAvatar] = useState(initial.avatar); // profile picture, as a data: URL
+  const [username, setUsername] = useState(initial.username);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [detail, setDetail] = useState(null); // the title open in the title sheet
   const [editing, setEditing] = useState(null); // the item open in the edit sheet
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -179,12 +182,13 @@ function App() {
   const sync = useCloudSync(userId, items, itemsRef, updateItems);
   useProfileField(userId, "tmdb_key", tmdbKey, setTmdbKey);
   useProfileField(userId, "avatar", avatar, setAvatar, cleanAvatar);
+  useProfileField(userId, "username", username, setUsername, cleanUsername);
   usePosterBackfill(items, tmdbKey, updateItems);
 
   // The app is on screen: hand the loading screen over to the header logo.
   useEffect(() => { window.tvtSplashDone?.(); }, []);
 
-  useEffect(() => { saveState({ items, theme, tab, filter, explore, tmdbKey, avatar }); }, [items, theme, tab, filter, explore, tmdbKey, avatar]);
+  useEffect(() => { saveState({ items, theme, tab, filter, explore, tmdbKey, avatar, username }); }, [items, theme, tab, filter, explore, tmdbKey, avatar, username]);
 
   useEffect(() => {
     const mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
@@ -287,6 +291,106 @@ function App() {
     }
   };
 
+  // Puts back the titles in `before` (a Map of id → item as it was), with
+  // a fresh edit time so the restore wins on other devices too.
+  const restore = (before) => updateItems((prev) => prev.map((i) => (before.has(i.id) ? touch(before.get(i.id)) : i)));
+
+  // Several titles to one list at once (the "…" menu on a Watching
+  // section), with Undo.
+  const moveMany = (ids, status) => {
+    const want = new Set(ids);
+    const before = new Map();
+    updateItems((prev) => prev.map((i) => {
+      if (!want.has(i.id) || i.status === status) return i;
+      before.set(i.id, i);
+      return touch(stampWatch(i, { ...i, status }));
+    }));
+    if (before.size) showToast(`Moved ${plural(before.size, "title")} to ${statusLabel(status)}`, { action: { label: "Undo", onClick: () => restore(before) } });
+  };
+
+  // "I'm caught up": each show's progress jumps to the latest episode out
+  // (per TMDB); a show that has ended goes to Watched. Shows already there
+  // or further along are left alone, as are ones TMDB hasn't details for.
+  const catchUp = async (ids, { quiet = false } = {}) => {
+    const shows = ids.map(findItem).filter((i) => i && i.kind === "tv");
+    const linked = shows.filter((i) => i.tmdbId);
+    if (!linked.length) {
+      if (!quiet) showToast(!shows.length ? "Only shows can be caught up" : !tmdbKey ? "Add a TMDB key in Settings first" : "Link it to TMDB first: Edit Details, then pick it from the search");
+      return;
+    }
+    if (!quiet && linked.length > 4) showToast(`Checking ${plural(linked.length, "show")} on TMDB…`);
+    const details = await fetchDetailsFor(linked, tmdbKey);
+    const wanted = new Set(linked.map((i) => i.id));
+    const before = new Map();
+    let finished = 0;
+    const now = nowIso();
+    updateItems((prev) => prev.map((i) => {
+      const at = latestAired(details.get(i.id));
+      if (!at || !wanted.has(i.id)) return i;
+      const ended = isFinished(details.get(i.id));
+      const ahead = progressRank(i) >= progressRank({ kind: "tv", ...at });
+      if (ahead && !ended) return i;
+      before.set(i.id, i);
+      if (ended) finished++;
+      const p = ahead ? {} : { season: at.season, episode: at.episode };
+      return normaliseItem(touch({ ...i, ...p, status: ended || i.status === "watched" ? "watched" : "watching", lastWatched: now })) || i;
+    }));
+    const n = before.size;
+    if (!n) {
+      if (!quiet) showToast(linked.length === 1 ? `Already caught up on “${linked[0].title}”` : details.size ? "Already caught up on all of them" : "Couldn't reach TMDB. Try again in a moment.");
+      return;
+    }
+    const one = n === 1 && findItem([...before.keys()][0]);
+    const msg = one
+      ? (one.status === "watched" ? `“${one.title}” has ended: moved to Watched` : `Caught up on “${one.title}” · S${one.season} E${one.episode}`)
+      : `Caught up on ${plural(n, "show")}${finished ? `; ${finished} that ended moved to Watched` : ""}`;
+    showToast(msg, { action: { label: "Undo", onClick: () => restore(before) } });
+  };
+
+  // The "…" menu on a row or card: what you can do with that title.
+  const itemMenu = (item) => {
+    const tv = item.kind === "tv";
+    const d = tv ? cachedDetails("tv", item.tmdbId) : null;
+    const n = tv ? nextEpisode(item, d) : null;
+    const latest = latestAired(d);
+    const behind = !latest || progressRank(item) < progressRank({ kind: "tv", ...latest });
+    showMenu({
+      title: item.title,
+      sub: [KINDS.find((k) => k.v === item.kind)?.l, statusLabel(item.status), progressLabel(item)].filter(Boolean).join(" · "),
+      actions: [
+        tv && n?.aired && item.status !== "watched" && { label: `Mark S${n.season} · E${n.episode} watched`, icon: <CheckIcon size={18} />, run: () => advance(item.id) },
+        tv && item.tmdbId && behind && { label: "I'm Caught Up", sub: latest ? `Jump to S${latest.season} · E${latest.episode}, the latest out` : "Jump to the latest episode out", icon: <ForwardIcon size={18} />, run: () => catchUp([item.id]) },
+        tv && { label: "Choose Episode…", sub: "Pick the season and episode you're on", icon: <TvIcon size={18} />, run: () => openItem(item) },
+        item.status !== "watched" && { label: tv ? "Finished It" : "Mark as Watched", sub: "Move to Watched", icon: <CheckCircleIcon size={18} />, run: () => moveTo(item.id, "watched") },
+        item.status !== "watching" && { label: "Move to Watching", icon: <PlayIcon size={18} />, run: () => moveTo(item.id, "watching") },
+        item.status !== "watchlist" && { label: "Move to Watchlist", sub: "For later", icon: <BookmarkIcon size={18} />, run: () => moveTo(item.id, "watchlist") },
+        { label: "Edit Details", icon: <PencilIcon size={18} />, run: () => setEditing(item) },
+        { label: "Remove from Library", danger: true, icon: <TrashIcon size={18} />, run: () => deleteItem(item.id) },
+      ],
+    });
+  };
+
+  // The "…" menu on a Watching section: the same for all its titles.
+  const bulkMenu = (group, ids) => {
+    const shows = ids.map(findItem).filter((i) => i?.kind === "tv" && i.tmdbId).length;
+    const n = plural(ids.length, "title");
+    const confirmThen = (title, body, fn) => async () => {
+      if (await askConfirm({ title, body: `${body} You can undo straight after.`, confirmLabel: "Go Ahead" })) fn();
+    };
+    showMenu({
+      title: GROUP_NAMES[group],
+      sub: n,
+      actions: [
+        group !== "caughtup" && shows > 0 && {
+          label: "Mark All Caught Up", sub: "Each show to its latest episode out; ones that have ended go to Watched", icon: <ForwardIcon size={18} />,
+          run: confirmThen(`Mark ${plural(shows, "show")} caught up?`, "Each one jumps to the latest episode out, and shows that have ended move to Watched.", () => catchUp(ids)),
+        },
+        { label: "Move All to Watched", icon: <CheckCircleIcon size={18} />, run: confirmThen(`Move ${n} to Watched?`, "They'll leave Watching.", () => moveMany(ids, "watched")) },
+        { label: "Move All to Watchlist", icon: <BookmarkIcon size={18} />, run: confirmThen(`Move ${n} to your Watchlist?`, "They'll leave Watching.", () => moveMany(ids, "watchlist")) },
+      ],
+    });
+  };
+
   const replaceAll = (list, message) => {
     const prev = itemsRef.current;
     updateItems(() => list);
@@ -296,10 +400,14 @@ function App() {
   // CSV import: merged in with Undo, then titles without TMDB details are
   // matched there in the background. A match for a title already in the
   // library under another name is left out rather than make a duplicate.
+  // Shows the file said you're up to date with are caught up once they're
+  // linked (catchUp needs TMDB's episode list), after the other toasts.
   const importCsv = (plan) => {
     replaceAll(plan.items, `Imported ${plural(plan.added + plan.updated, "title")}`);
-    if (!tmdbKey || !plan.toLink.length) return;
     const started = Date.now();
+    const later = (fn) => setTimeout(fn, Math.max(0, 6500 - (Date.now() - started)));
+    const thenCatchUp = () => { if (tmdbKey && plan.caughtUp.length) later(() => catchUp(plan.caughtUp, { quiet: true })); };
+    if (!tmdbKey || !plan.toLink.length) { thenCatchUp(); return; }
     linkWithTmdb(plan.toLink, tmdbKey, (batch) => updateItems((prev) => {
       const have = new Set(prev.filter((i) => i.tmdbId).map((i) => `${i.kind}:${i.tmdbId}`));
       return prev.map((i) => {
@@ -309,7 +417,8 @@ function App() {
       });
     })).then((n) => {
       // After the Undo toast has had its time.
-      setTimeout(() => showToast(`Matched ${n} of ${plural(plan.toLink.length, "title")} on TMDB`), Math.max(0, 6500 - (Date.now() - started)));
+      later(() => showToast(`Matched ${n} of ${plural(plan.toLink.length, "title")} on TMDB`));
+      if (plan.caughtUp.length) setTimeout(thenCatchUp, 2400);
     });
   };
 
@@ -333,7 +442,7 @@ function App() {
   if (list) {
     screen = (
       <ListView key={`list-${list}`} status={list} items={items} filter={filter} setFilter={setFilter}
-        onOpen={openItem} onQuick={applyQuick} onAdd={() => setEditing(blankItem(list))}
+        onOpen={openItem} onQuick={applyQuick} onMore={itemMenu} onAdd={() => setEditing(blankItem(list))}
         back={{ label: TABS.find((t) => t.v === tab)?.l, onClick: () => setList(null) }} />
     );
   } else if (tab === "explore") {
@@ -344,12 +453,12 @@ function App() {
   } else if (tab === "profile") {
     screen = (
       <ProfileView key="profile" items={items} tmdbKey={tmdbKey} session={session} sync={sync} avatar={avatar} setAvatar={setAvatar}
-        onOpenList={setList} onSettings={openSettings} />
+        username={username} onEditProfile={() => setProfileOpen(true)} onOpenList={setList} onSettings={openSettings} onImportCsv={() => setCsvOpen(true)} />
     );
   } else {
     screen = (
       <WatchingView key="watching" items={items} tmdbKey={tmdbKey} onOpenItem={openItem} onOpenTile={openTile}
-        onAdvance={advance} onSeeAll={setList} onExplore={() => go("explore")} />
+        onAdvance={advance} onSeeAll={setList} onExplore={() => go("explore")} onMore={itemMenu} onBulk={bulkMenu} />
     );
   }
 
@@ -373,6 +482,7 @@ function App() {
           }}
           onAdvance={advance}
           onPatch={patchItem}
+          onCatchUp={(id) => catchUp([id])}
           onEdit={setEditing}
           onDelete={deleteItem}
           onClose={() => setDetail(null)}
@@ -395,7 +505,8 @@ function App() {
           tmdbKey={tmdbKey}
           setTmdbKey={setTmdbKey}
           avatar={avatar}
-          setAvatar={setAvatar}
+          username={username}
+          onEditProfile={() => setProfileOpen(true)}
           session={session}
           sync={sync}
           items={items}
@@ -408,7 +519,12 @@ function App() {
         />
       )}
       {csvOpen && <CsvImportSheet items={items} tmdbKey={tmdbKey} onImport={importCsv} onClose={() => setCsvOpen(false)} />}
+      {profileOpen && (
+        <ProfileSheet username={username} setUsername={setUsername} avatar={avatar} setAvatar={setAvatar}
+          email={session?.user?.email} signedIn={!!session} onClose={() => setProfileOpen(false)} />
+      )}
 
+      <MenuHost />
       <ToastHost />
       <ConfirmHost />
     </div>
@@ -429,8 +545,10 @@ function Header({ onAdd, onSettings }) {
     <header className={"tvt-header" + (scrolled ? " is-scrolled" : "")}>
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "calc(var(--safe-top) + 12px) 16px 12px", display: "flex", alignItems: "center", gap: 10 }}>
         {/* The splash logo and title fly onto these two (index.html). */}
-        <img data-splash-target="logo" src="icon.svg" alt="" width="28" height="28" style={{ borderRadius: 8, flexShrink: 0 }} />
-        <h1 data-splash-target="title" style={{ flex: 1, minWidth: 0, margin: 0, fontSize: "clamp(15px, 4.6vw, 17px)", fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>TV &amp; Movie Tracker</h1>
+        <img data-splash-target="logo" src="icon.svg" alt="" width="30" height="30" style={{ borderRadius: 8, flexShrink: 0 }} />
+        <h1 data-splash-target="title" style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 21, fontWeight: 700, letterSpacing: "-0.035em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          pree<span className="tvt-dash">-</span>it
+        </h1>
         <button type="button" onClick={onAdd} aria-label="Add a title" title="Add a title" style={{ ...iconBtn(), background: "var(--accent)", color: "var(--accent-ink)" }}><PlusIcon /></button>
         <button type="button" onClick={onSettings} aria-label="Settings" title="Settings" style={iconBtn()}><GearIcon /></button>
       </div>
@@ -440,40 +558,58 @@ function Header({ onAdd, onSettings }) {
 
 /* ============ List screen ============
    One status's titles (Profile → Library, or See All), pushed over the
-   tab with a back button. */
-function ListView({ status, items, filter, setFilter, onOpen, onQuick, onAdd, back }) {
+   tab with a back button: filter by kind, search, and a dropdown to sort. */
+const SORTS = [
+  { v: "recent", l: "Recently Changed", short: "Recent" },
+  { v: "title", l: "Title A–Z", short: "A–Z" },
+  { v: "rating", l: "Your Rating", short: "Rating" },
+  { v: "year", l: "Year, Newest First", short: "Year" },
+];
+const foldText = (t) => String(t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+function ListView({ status, items, filter, setFilter, onOpen, onQuick, onMore, onAdd, back }) {
   const meta = STATUSES.find((s) => s.v === status);
   const inStatus = items.filter((i) => i.status === status);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState("recent");
   // Most recently touched first, but the order is fixed while you're on
   // the screen, so a row you tap +1 on doesn't jump to the top under your
   // finger. Titles added meanwhile go on top.
   const orderRef = useRef(null);
   if (!orderRef.current) orderRef.current = [...inStatus].sort((a, b) => b.updated.localeCompare(a.updated)).map((i) => i.id);
   const rank = (id) => orderRef.current.indexOf(id);
-  const shown = inStatus
-    .filter((i) => filter === "all" || i.kind === filter)
-    .sort((a, b) => rank(a.id) - rank(b.id));
+  const by = {
+    recent: (a, b) => rank(a.id) - rank(b.id),
+    title: (a, b) => a.title.localeCompare(b.title, "en-GB", { sensitivity: "base" }),
+    rating: (a, b) => b.rating - a.rating || rank(a.id) - rank(b.id),
+    year: (a, b) => (b.year || "0").localeCompare(a.year || "0") || rank(a.id) - rank(b.id),
+  }[sort];
+  const q = foldText(query.trim());
+  const ofKind = inStatus.filter((i) => filter === "all" || i.kind === filter);
+  const shown = ofKind.filter((i) => !q || foldText(i.title).includes(q)).sort(by);
 
   // A one-tap move to another tab folds the row shut first.
   const [isLeaving, foldAway] = useFoldAway(onQuick);
-  const quick = (item, q) => (q.patch.status && q.patch.status !== item.status ? foldAway(item.id) : onQuick(item.id));
+  const quick = (item, qa) => (qa.patch.status && qa.patch.status !== item.status ? foldAway(item.id) : onQuick(item.id));
 
   return (
     <main className="tvt-view tvt-push tvt-page" style={{ padding: "8px 16px calc(120px + var(--safe-bottom))" }}>
       <ScreenTitle title={meta.l} detail={plural(shown.length, "title")} back={back} />
-      <div style={{ marginBottom: 14 }}>
-        <SegToggle full options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
+      {inStatus.length > 6 && <SearchField value={query} onChange={setQuery} placeholder={`Search ${meta.l}`} />}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <SegToggle full options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
+        </div>
+        <SortPicker value={sort} onChange={setSort} />
       </div>
       {shown.length ? (
         // The rows rise in one by one, so the list itself doesn't; keyed
-        // by filter, so they cascade in again when it changes.
-        <div key={filter} style={{ animation: "none" }}>
-          {shown.map((item, i) => (
-            <AnimatedRow key={item.id} index={i} leaving={isLeaving(item.id)}>
-              <ItemRow item={item} onOpen={onOpen} onQuick={quick} />
-            </AnimatedRow>
-          ))}
+        // by filter and sort, so they cascade in again when either changes.
+        <div key={filter + sort} style={{ animation: "none" }}>
+          <LongList items={shown} leaving={isLeaving} step={30} render={(item) => <ItemRow item={item} onOpen={onOpen} onQuick={quick} onMore={onMore} />} />
         </div>
+      ) : q && ofKind.length ? (
+        <div style={{ fontSize: 13.5, color: "var(--ink-dim)", padding: "6px 4px 20px" }}>Nothing in {meta.l} matches “{query.trim()}”.</div>
       ) : (
         <EmptyState meta={meta} filter={filter} onAdd={onAdd} />
       )}
@@ -481,14 +617,34 @@ function ListView({ status, items, filter, setFilter, onOpen, onQuick, onAdd, ba
   );
 }
 
-function ItemRow({ item, onOpen, onQuick }) {
+/* A small pill with the sort order and a chevron; the real <select> lies
+   invisibly on top, so a tap opens the iPhone's picker. */
+function SortPicker({ value, onChange }) {
+  const cur = SORTS.find((o) => o.v === value) || SORTS[0];
+  return (
+    <div className="tvt-picker" style={{
+      position: "relative", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 11px 0 12px",
+      borderRadius: 10, background: "var(--fill)", color: "var(--ink)", fontSize: 13, fontWeight: 600,
+    }}>
+      <span key={cur.v} className="tvt-pop">{cur.short}</span>
+      <span aria-hidden style={{ display: "inline-flex", color: "var(--ink-dim)" }}><ChevronIcon dir="down" size={12} /></span>
+      <select aria-label="Sort by" value={value} onChange={(e) => onChange(e.target.value)} style={{
+        position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, fontSize: 16, cursor: "pointer", appearance: "none", WebkitAppearance: "none",
+      }}>
+        {SORTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function ItemRow({ item, onOpen, onQuick, onMore }) {
   const q = quickAction(item);
   const progress = progressLabel(item);
   return (
     <div style={{
       display: "flex", alignItems: "center", gap: 10,
       background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 18,
-      padding: "10px 12px 10px 10px",
+      padding: "10px 8px 10px 10px",
     }}>
       <button type="button" className="tvt-wide-btn" onClick={() => onOpen(item)} style={{
         flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12,
@@ -513,6 +669,7 @@ function ItemRow({ item, onOpen, onQuick }) {
           padding: "8px 13px", minHeight: 36, borderRadius: 999, fontSize: 13, fontWeight: 600, flexShrink: 0,
         }}>{q.label}</button>
       )}
+      {onMore && <MoreButton onClick={() => onMore(item)} label={`${item.title} options`} size={34} style={{ background: "transparent", marginRight: -4 }} />}
     </div>
   );
 }
@@ -643,12 +800,8 @@ function ItemSheet({ item, isNew: isNewProp, tmdbKey, onSave, onDelete, onClose 
         </Field>
         <Collapse open={draft.kind === "tv"}>
           <Field label="Last episode watched">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {/* Moving on to a new season starts it at episode 0. */}
-              <Stepper label="Season" value={draft.season} min={1} max={999}
-                onChange={(v) => setDraft((d) => ({ ...d, season: v, episode: v > d.season ? 0 : d.episode }))} />
-              <Stepper label="Episode" value={draft.episode} min={0} max={9999} onChange={(v) => set("episode", v)} />
-            </div>
+            <EpisodePicker season={draft.season} episode={draft.episode} d={draft.tmdbId ? cachedDetails("tv", draft.tmdbId) : null}
+              onChange={(p) => setDraft((d) => ({ ...d, ...p }))} />
           </Field>
         </Collapse>
         <Field label="Rating">
@@ -680,23 +833,6 @@ function Field({ label, htmlFor, children }) {
     <div style={{ marginBottom: 14 }}>
       <Tag htmlFor={htmlFor} className="label" style={{ display: "block", marginBottom: 6 }}>{label}</Tag>
       {children}
-    </div>
-  );
-}
-
-function Stepper({ label, value, min, max, onChange }) {
-  const l = label.toLowerCase();
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, background: "var(--bg-2)", borderRadius: 14, padding: 6 }}>
-      <button type="button" aria-label={`Previous ${l}`} disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}
-        style={{ ...iconBtn(36), opacity: value <= min ? 0.35 : 1 }}><MinusIcon size={16} /></button>
-      <div style={{ textAlign: "center", minWidth: 0 }} aria-live="polite">
-        <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>{label}</div>
-        {/* Keyed by value, so the number pops as it changes. */}
-        <div key={value} className="mono tvt-pop" style={{ fontSize: 18, fontWeight: 700 }}>{value}</div>
-      </div>
-      <button type="button" aria-label={`Next ${l}`} disabled={value >= max} onClick={() => onChange(Math.min(max, value + 1))}
-        style={iconBtn(36)}><PlusIcon size={16} /></button>
     </div>
   );
 }
@@ -787,7 +923,7 @@ function RatingInput({ value, onChange }) {
 }
 
 /* ============ Settings ============ */
-function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, setAvatar, session, sync, items, onImport, onImportCsv, onErase, onClose }) {
+function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, username, onEditProfile, session, sync, items, onImport, onImportCsv, onErase, onClose }) {
   const { ref, closing, close } = useModalDismiss(onClose);
   const fileRef = useRef(null);
   const [testing, setTesting] = useState(false);
@@ -803,8 +939,8 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, setAvatar
   };
 
   const exportJson = async () => {
-    const name = `tv-tracker-${new Date().toISOString().slice(0, 10)}.json`;
-    const data = JSON.stringify({ app: "tv-movie-tracker", v: 1, exported: nowIso(), items }, null, 2);
+    const name = `pree-it-${new Date().toISOString().slice(0, 10)}.json`;
+    const data = JSON.stringify({ app: "pree-it", v: 1, exported: nowIso(), items }, null, 2);
     const blob = new Blob([data], { type: "application/json" });
     // On iPhone the share sheet (Save to Files, AirDrop, Mail) is the
     // reliable way to get a file out of a Home Screen app.
@@ -829,7 +965,7 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, setAvatar
       if (!Array.isArray(raw)) throw new Error("no items");
       list = cleanList(raw);
     } catch {
-      showToast("That file isn't a tracker backup");
+      showToast("That file isn't a pree-it backup");
       return;
     }
     const ok = await askConfirm({
@@ -851,58 +987,92 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, setAvatar
     if (ok) { onErase(); close(); }
   };
 
+  const email = session?.user?.email || "";
   return (
     <ModalFrame sheet dismiss={{ ref, closing, close }} label="Settings">
       <ModalHead title="Settings" onClose={close} />
-      <Field label="Appearance">
+      <SettingsGroup id="appearance" icon={<PaletteIcon size={17} />} tint="var(--movie)" title="Appearance" summary={THEMES.find((t) => t.v === theme)?.l} defaultOpen>
         <SegToggle full options={THEMES} value={theme} onChange={setTheme} label="Appearance" />
-      </Field>
-      <Field label="Profile picture">
-        <AvatarPicker avatar={avatar} setAvatar={setAvatar} email={session?.user?.email} />
-      </Field>
+      </SettingsGroup>
+      <SettingsGroup id="profile" icon={<PersonIcon size={17} />} tint="var(--accent)" title="Profile" summary={username || "No username"}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <Avatar src={avatar} name={username} email={email} size={48} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{username || "No username yet"}</div>
+            <div style={{ fontSize: 12.5, color: "var(--ink-dim)", marginTop: 2 }}>{avatar ? "Profile picture set" : "No profile picture"}</div>
+          </div>
+          <button type="button" onClick={onEditProfile} style={ghostBtn()}>Edit</button>
+        </div>
+      </SettingsGroup>
       {cloud && (
-        <Field label="Account">
-          <AccountSection session={session} sync={sync} avatar={avatar} />
-        </Field>
+        <SettingsGroup id="account" icon={<CloudIcon size={17} />} tint="var(--tv)" title="Account & Sync"
+          summary={session === undefined ? "…" : session ? syncLabel(sync.status).split(":")[0] : "Not signed in"} defaultOpen={!session}>
+          <AccountSection session={session} sync={sync} avatar={avatar} username={username} />
+        </SettingsGroup>
       )}
-      <Field label="Title search" htmlFor="tvt-tmdb">
+      <SettingsGroup id="tmdb" icon={<KeyIcon size={17} />} tint="var(--ok)" title="Title Search (TMDB)" summary={tmdbKey ? "Key added" : "No key"} defaultOpen={!tmdbKey}>
         <div style={note}>
-          Paste your free TMDB API key to search titles and get posters. Get one at{" "}
+          Paste your free TMDB API key to search titles and get posters, episode lists and Explore. Get one at{" "}
           <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>themoviedb.org → Settings → API</a>.
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <input id="tvt-tmdb" value={tmdbKey} onChange={(e) => setTmdbKey(e.target.value.trim())} placeholder="API key or read access token"
+          <input id="tvt-tmdb" aria-label="TMDB API key" value={tmdbKey} onChange={(e) => setTmdbKey(e.target.value.trim())} placeholder="API key or read access token"
             autoComplete="off" autoCapitalize="off" spellCheck={false} style={{ ...fieldStyle(), flex: 1, minWidth: 0 }} />
           <button type="button" onClick={testKey} disabled={!tmdbKey || testing} style={{ ...ghostBtn(), opacity: tmdbKey ? 1 : 0.4 }}>{testing ? "Testing…" : "Test"}</button>
         </div>
-      </Field>
-      <Field label="Backup">
+      </SettingsGroup>
+      <SettingsGroup id="backup" icon={<ArchiveIcon size={17} />} tint="#8e8e93" title="Backup & Import" summary={plural(items.length, "title")}>
         <div style={note}>
           {signedIn
             ? "Your list syncs to your account. A backup file is still worth keeping now and then."
             : "Your list is saved on this device only. Export a copy now and then: Safari can clear a site's data."}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" onClick={exportJson} style={ghostBtn()}>Export</button>
-          <button type="button" onClick={() => fileRef.current?.click()} style={ghostBtn()}>Import</button>
+          <button type="button" onClick={exportJson} style={ghostBtn()}>Export Backup</button>
+          <button type="button" onClick={() => fileRef.current?.click()} style={ghostBtn()}>Restore Backup</button>
           <button type="button" onClick={onImportCsv} style={ghostBtn()}>Import CSV</button>
           <input ref={fileRef} type="file" accept="application/json,.json" onChange={importJson} hidden />
         </div>
         <div style={{ ...note, fontSize: 12.5, color: "var(--ink-faint)", margin: "8px 0 0" }}>
           Import CSV merges ratings, library, watched and list exports, such as another tracker's, into your list.
         </div>
-      </Field>
-      <Field label="Reset">
-        <button type="button" onClick={erase} disabled={!items.length} style={{ ...ghostBtn(), color: "var(--danger)", opacity: items.length ? 1 : 0.4 }}>Erase everything</button>
-      </Field>
-      <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 4 }}>
-        {plural(items.length, "title")} · v{APP_VERSION}
+      </SettingsGroup>
+      <SettingsGroup id="reset" icon={<TrashIcon size={17} />} tint="var(--danger)" title="Reset">
+        <div style={note}>Removes every title{signedIn ? ", here and in your account" : ""}. Your settings stay.</div>
+        <button type="button" onClick={erase} disabled={!items.length} style={{ ...ghostBtn(), color: "var(--danger)", opacity: items.length ? 1 : 0.4 }}>Erase Everything</button>
+      </SettingsGroup>
+      <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 14 }}>
+        pree-it v{APP_VERSION} · {plural(items.length, "title")}
       </div>
       {/* TMDB's terms ask apps using its API to say this. */}
       <div style={{ fontSize: 11.5, color: "var(--ink-faint)", marginTop: 6, lineHeight: 1.4 }}>
         Search and posters from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
       </div>
     </ModalFrame>
+  );
+}
+
+/* One section of Settings: a row with a tinted icon, its name and a
+   summary, that opens (chevron down) onto its controls. Remembered. */
+function SettingsGroup({ id, icon, tint, title, summary, defaultOpen = false, children }) {
+  const [open, toggle] = useFold(`settings:${id}`, defaultOpen);
+  return (
+    <div style={{ background: "var(--bg-2)", borderRadius: 16, marginBottom: 10 }}>
+      <button type="button" onClick={toggle} aria-expanded={open} className="tvt-wide-btn" style={{
+        width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", margin: 0,
+        background: "none", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
+      }}>
+        <span aria-hidden style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: tint, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{icon}</span>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 500 }}>{title}</span>
+        {summary && <span style={{ fontSize: 13.5, color: "var(--ink-dim)", maxWidth: "42%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{summary}</span>}
+        <span aria-hidden style={{ display: "inline-flex", color: "var(--ink-faint)", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.3s var(--ease-snappy)" }}>
+          <ChevronIcon dir="down" size={14} />
+        </span>
+      </button>
+      <Collapse open={open}>
+        <div style={{ padding: "2px 14px 14px" }}>{children}</div>
+      </Collapse>
+    </div>
   );
 }
 

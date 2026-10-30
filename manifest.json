@@ -1,7 +1,7 @@
 {
-  "name": "TV & Movie Tracker",
-  "short_name": "TV Tracker",
-  "description": "Keep track of the shows and movies you're watching, want to watch and have watched.",
+  "name": "pree-it",
+  "short_name": "pree-it",
+  "description": "pree-it: keep track of the shows and movies you're watching, want to watch and have watched.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

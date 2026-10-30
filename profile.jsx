@@ -1,7 +1,7 @@
-/* profile.jsx — your account and profile picture, what you've watched
-   (time, episodes, movies, genres), awards for milestones, and your
-   library's lists. */
-const { useRef: useRefP } = React;
+/* profile.jsx — your username, profile picture and account, what you've
+   watched (time, episodes, movies, genres), awards for milestones, and
+   your library's lists. */
+const { useState: useStateP, useRef: useRefP } = React;
 
 /* For titles TMDB can't time (typed in by hand, or no runtime listed). */
 const EST_EPISODE_MIN = 45;
@@ -62,19 +62,23 @@ const BADGES = [
   { id: "eps1000", icon: "👑", hue: 50, name: "Series Royalty", desc: "Watch 1,000 episodes", goal: 1000, of: (s) => s.episodes },
 ];
 
-function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, onOpenList, onSettings }) {
+function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, username, onEditProfile, onOpenList, onSettings, onImportCsv }) {
   // Runtimes and episode counts for everything that counts towards time.
   const pending = usePrefetchDetails(items.filter((i) => i.status !== "watchlist"), tmdbKey);
   const s = watchStats(items);
   const counts = {};
-  for (const st of STATUSES) counts[st.v] = items.filter((i) => i.status === st.v).length;
-  const earned = BADGES.filter((b) => b.of(s) >= b.goal).length;
+  for (const st of STATUSES) {
+    const inSt = items.filter((i) => i.status === st.v);
+    counts[st.v] = { all: inSt.length, tv: inSt.filter((i) => i.kind === "tv").length, movie: inSt.filter((i) => i.kind === "movie").length };
+  }
   const genres = [...s.genreTime].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const tint = { watching: "var(--accent)", watchlist: "var(--tv)", watched: "var(--ok)" };
+  const split = (c) => [c.tv && plural(c.tv, "show"), c.movie && plural(c.movie, "movie")].filter(Boolean).join(" · ") || "Empty";
 
   return (
     <main className="tvt-view tvt-page" style={{ padding: "8px 16px calc(120px + var(--safe-bottom))" }}>
       <ScreenTitle title="Profile" />
-      <AccountCard session={session} sync={sync} avatar={avatar} setAvatar={setAvatar} onSettings={onSettings} />
+      <ProfileHeader items={items} session={session} sync={sync} avatar={avatar} setAvatar={setAvatar} username={username} onEdit={onEditProfile} />
 
       <SectionHeader title="Watch Time" detail={pending ? "Updating…" : null} />
       <WatchTimeCard s={s} />
@@ -102,21 +106,141 @@ function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, onOpenL
         </>
       )}
 
-      <SectionHeader title="Awards" detail={`${earned} of ${BADGES.length}`} />
-      <Card style={{ marginBottom: 26, padding: "20px 10px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px 6px" }}>
-          {BADGES.map((b) => <BadgeMedal key={b.id} badge={b} value={b.of(s)} />)}
-        </div>
-      </Card>
+      <AwardsSection s={s} />
 
       <SectionHeader title="Library" />
-      <LibraryRows counts={counts} onOpen={onOpenList} />
+      <ListRows rows={STATUSES.map((st) => ({
+        key: st.v, icon: <st.icon size={18} />, tint: tint[st.v], label: st.l, sub: split(counts[st.v]),
+        detail: counts[st.v].all, onClick: () => onOpenList(st.v),
+      }))} />
 
-      <div style={{ fontSize: 12, color: "var(--ink-faint)", lineHeight: 1.45, margin: "0 4px" }}>
-        Times use TMDB's runtimes. A show counts the episodes up to your progress, or all of them once it's in Watched.
-        {s.estimated > 0 && ` ${plural(s.estimated, "title")} without a runtime ${s.estimated === 1 ? "is" : "are"} estimated at 45 min an episode or 1h 50m a movie.`}
+      <SectionHeader title="More" />
+      <ListRows rows={[
+        { key: "settings", icon: <GearIcon size={18} />, tint: "#8e8e93", label: "Settings", sub: "Appearance, account, TMDB key, backups", onClick: onSettings },
+        { key: "csv", icon: <UploadIcon size={18} />, tint: "var(--movie)", label: "Import CSV", sub: "From another tracker or a spreadsheet", onClick: onImportCsv },
+      ]} />
+
+      <HowCounted s={s} />
+      <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", textAlign: "center", marginTop: 18 }}>
+        pree-it v{APP_VERSION}
       </div>
     </main>
+  );
+}
+
+/* Your picture (tap it to change it), name and sync, and what's in your
+   library at a glance. */
+function ProfileHeader({ items, session, sync, avatar, setAvatar, username, onEdit }) {
+  const [input, choose] = useAvatarInput(setAvatar);
+  const email = session?.user?.email || "";
+  const failed = sync.status.state === "error";
+  const status = session === undefined ? "Checking sign-in…"
+    : session ? syncLabel(sync.status)
+    : cloud ? "Not signed in · saved on this device" : "Saved on this device";
+  const first = Math.min(...items.map((i) => isoTime(i.added)).filter(Boolean));
+  const since = Number.isFinite(first) ? new Date(first).toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : "";
+  const tally = [
+    { l: "Titles", n: items.length },
+    { l: "Shows", n: items.filter((i) => i.kind === "tv").length },
+    { l: "Movies", n: items.filter((i) => i.kind === "movie").length },
+  ];
+  return (
+    <section style={{
+      position: "relative", overflow: "hidden", textAlign: "center", marginBottom: 26, padding: "24px 18px 18px",
+      background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 24,
+    }}>
+      {/* A wash of the accent behind the picture. */}
+      <span aria-hidden style={{ position: "absolute", left: 0, right: 0, top: 0, height: 120, background: "linear-gradient(180deg, color-mix(in oklab, var(--accent) 22%, transparent), transparent)", pointerEvents: "none" }} />
+      <button type="button" onClick={choose} aria-label={avatar ? "Change profile picture" : "Add a profile picture"} style={{
+        position: "relative", display: "inline-flex", padding: 3, margin: 0, borderRadius: 999, cursor: "pointer",
+        background: "var(--bg-1)", border: "none", boxShadow: "0 12px 30px -14px rgba(0,0,0,0.7)",
+      }}>
+        <Avatar src={avatar} name={username} email={email} size={92} />
+        <span aria-hidden style={{
+          position: "absolute", right: 0, bottom: 0, width: 30, height: 30, borderRadius: 999,
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          background: "var(--accent)", color: "var(--accent-ink)", border: "3px solid var(--bg-1)",
+        }}><CameraIcon size={14} /></span>
+      </button>
+      {input}
+      <div style={{ position: "relative", marginTop: 12 }}>
+        {username ? (
+          <div key={username} className="tvt-pop" style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-0.02em", overflowWrap: "anywhere" }}>{username}</div>
+        ) : (
+          <button type="button" onClick={onEdit} style={{ background: "none", border: "none", padding: "2px 6px", color: "var(--accent)", fontSize: 19, fontWeight: 600, cursor: "pointer" }}>
+            Set a username
+          </button>
+        )}
+        <div aria-live="polite" style={{ fontSize: 13, color: failed ? "var(--danger)" : "var(--ink-dim)", marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>
+          {email && <>{email}<br /></>}{status}
+        </div>
+        {since && <div style={{ fontSize: 12.5, color: "var(--ink-faint)", marginTop: 4 }}>Tracking since {since}</div>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", margin: "16px 0 14px", padding: "12px 0", borderTop: "1px solid var(--line-soft)", borderBottom: "1px solid var(--line-soft)" }}>
+        {tally.map((t, i) => (
+          <div key={t.l} style={{ borderLeft: i ? "1px solid var(--line-soft)" : "none" }}>
+            <div key={t.n} className="mono tvt-pop" style={{ fontSize: 21, fontWeight: 700 }}>{t.n.toLocaleString("en-GB")}</div>
+            <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 1 }}>{t.l}</div>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={onEdit} style={{ ...ghostBtn(), borderRadius: 999, padding: "9px 20px", display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <PencilIcon size={15} />Edit Profile
+      </button>
+    </section>
+  );
+}
+
+/* Awards: the ones you've earned and the nearest to earning first, six on
+   show and the rest under Show All. */
+function AwardsSection({ s }) {
+  const [open, toggle] = useFold("profile:awards", false);
+  const frac = (b) => Math.min(1, b.of(s) / b.goal);
+  const sorted = [...BADGES].sort((a, b) => (frac(b) >= 1) - (frac(a) >= 1) || frac(b) - frac(a));
+  const earned = BADGES.filter((b) => frac(b) >= 1).length;
+  const grid = (list) => (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px 6px" }}>
+      {list.map((b) => <BadgeMedal key={b.id} badge={b} value={b.of(s)} />)}
+    </div>
+  );
+  return (
+    <>
+      <SectionHeader title="Awards" detail={`${earned} of ${BADGES.length}`} />
+      <Card style={{ marginBottom: 26, padding: "20px 10px 10px" }}>
+        {grid(sorted.slice(0, 6))}
+        <Collapse open={open}><div style={{ paddingTop: 20 }}>{grid(sorted.slice(6))}</div></Collapse>
+        <button type="button" onClick={toggle} aria-expanded={open} style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", marginTop: 14, padding: "8px 0",
+          background: "none", border: "none", color: "var(--accent)", fontSize: 14.5, cursor: "pointer",
+        }}>
+          {open ? "Show Fewer" : `Show All ${BADGES.length}`}
+          <span style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.3s var(--ease-snappy)" }}><ChevronIcon dir="down" size={13} /></span>
+        </button>
+      </Card>
+    </>
+  );
+}
+
+/* The fine print on how watch time is worked out, folded away. */
+function HowCounted({ s }) {
+  const [open, toggle] = useFold("profile:how", false);
+  return (
+    <div style={{ margin: "4px 4px 0" }}>
+      <button type="button" onClick={toggle} aria-expanded={open} style={{
+        display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 0",
+        background: "none", border: "none", color: "var(--ink-dim)", fontSize: 13.5, textAlign: "left", cursor: "pointer",
+      }}>
+        <span style={{ flex: 1 }}>How watch time is counted</span>
+        <FoldChevron open={open} size={12} />
+      </button>
+      <Collapse open={open}>
+        <div style={{ fontSize: 12.5, color: "var(--ink-faint)", lineHeight: 1.5, paddingBottom: 4 }}>
+          Times use TMDB's runtimes. A show counts the episodes up to your progress, or all of them once it's in Watched;
+          a show in Not Started counts nothing until you tick an episode or mark it caught up. Watchlist titles don't count.
+          {s.estimated > 0 && ` ${plural(s.estimated, "title")} without a runtime ${s.estimated === 1 ? "is" : "are"} estimated at 45 min an episode or 1h 50m a movie.`}
+        </div>
+      </Collapse>
+    </div>
   );
 }
 
@@ -179,7 +303,8 @@ function useAvatarInput(setAvatar) {
 }
 
 /* The picture in a circle; without one, your initial (or a person). */
-function Avatar({ src, email, size = 56 }) {
+function Avatar({ src, name, email, size = 56 }) {
+  const initial = Array.from(name || email || "")[0]?.toUpperCase();
   return (
     <span aria-hidden style={{
       width: size, height: size, borderRadius: 999, flexShrink: 0, overflow: "hidden",
@@ -188,13 +313,13 @@ function Avatar({ src, email, size = 56 }) {
       color: "#fff", fontSize: Math.round(size * 0.43), fontWeight: 700,
     }}>
       {src ? <img key={src} src={src} alt="" className="tvt-pop" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        : email ? email[0].toUpperCase() : <PersonIcon size={Math.round(size / 2)} />}
+        : initial || <PersonIcon size={Math.round(size / 2)} />}
     </span>
   );
 }
 
 /* Settings: the picture, with Choose and Remove. */
-function AvatarPicker({ avatar, setAvatar, email }) {
+function AvatarPicker({ avatar, setAvatar, name, email, stacked }) {
   const [input, choose] = useAvatarInput(setAvatar);
   const remove = () => {
     const before = avatar;
@@ -202,50 +327,13 @@ function AvatarPicker({ avatar, setAvatar, email }) {
     showToast("Profile picture removed", { action: { label: "Undo", onClick: () => setAvatar(before) } });
   };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <Avatar src={avatar} email={email} size={52} />
-      <button type="button" onClick={choose} style={ghostBtn()}>{avatar ? "Change Photo" : "Choose Photo"}</button>
-      {avatar && <button type="button" onClick={remove} style={{ ...ghostBtn(), color: "var(--danger)" }}>Remove</button>}
+    <div style={{ display: "flex", flexDirection: stacked ? "column" : "row", alignItems: "center", gap: 12 }}>
+      <Avatar src={avatar} name={name} email={email} size={stacked ? 88 : 52} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button type="button" onClick={choose} style={ghostBtn()}>{avatar ? "Change Photo" : "Choose Photo"}</button>
+        {avatar && <button type="button" onClick={remove} style={{ ...ghostBtn(), color: "var(--danger)" }}>Remove</button>}
+      </div>
       {input}
-    </div>
-  );
-}
-
-/* Your picture (tap it to change it) and account; the rest opens Settings.
-   Two buttons side by side, as buttons can't nest. */
-function AccountCard({ session, sync, avatar, setAvatar, onSettings }) {
-  const [input, choose] = useAvatarInput(setAvatar);
-  const email = session?.user?.email || "";
-  const sub = session === undefined ? "Checking sign-in…"
-    : session ? syncLabel(sync.status)
-    : cloud ? "Sign in to sync across your devices" : "Saved on this device";
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 14, marginBottom: 26, padding: 14,
-      background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 20,
-    }}>
-      <button type="button" onClick={choose} aria-label={avatar ? "Change profile picture" : "Add a profile picture"} style={{
-        position: "relative", flexShrink: 0, display: "inline-flex", padding: 0, margin: 0,
-        background: "none", border: "none", borderRadius: 999, cursor: "pointer", transition: "var(--press)",
-      }}>
-        <Avatar src={avatar} email={email} size={56} />
-        <span aria-hidden style={{
-          position: "absolute", right: -3, bottom: -3, width: 24, height: 24, borderRadius: 999,
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
-          background: "var(--accent)", color: "var(--accent-ink)", border: "2px solid var(--bg-1)",
-        }}><CameraIcon size={13} /></span>
-      </button>
-      {input}
-      <button type="button" className="tvt-wide-btn" onClick={onSettings} style={{
-        flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, padding: 0, margin: 0,
-        background: "transparent", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
-      }}>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: "block", fontSize: 17, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{email || "Your Library"}</span>
-          <span style={{ display: "block", fontSize: 13, color: sync.status.state === "error" ? "var(--danger)" : "var(--ink-dim)", marginTop: 2 }}>{sub}</span>
-        </span>
-        <span style={{ color: "var(--ink-faint)", display: "inline-flex" }}><ChevronIcon /></span>
-      </button>
     </div>
   );
 }
@@ -338,32 +426,80 @@ function BadgeMedal({ badge, value }) {
   );
 }
 
-/* The library's lists, grouped as in iOS Settings. */
-function LibraryRows({ counts, onOpen }) {
-  const tint = { watching: "var(--accent)", watchlist: "var(--tv)", watched: "var(--ok)" };
+/* Rows grouped as in iOS Settings: a tinted icon, a label (and a line
+   under it), a detail on the right and a chevron. Each row is { key, icon,
+   tint, label, sub, detail, onClick }. */
+function ListRows({ rows }) {
   return (
-    <div style={{ background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 20, overflow: "hidden", marginBottom: 14 }}>
-      {STATUSES.map((st, i) => {
-        const Icon = st.icon;
-        return (
-          <button key={st.v} type="button" className="tvt-wide-btn" onClick={() => onOpen(st.v)} style={{
-            width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "0 14px", margin: 0,
-            background: "transparent", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
-          }}>
-            <span aria-hidden style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: tint[st.v] || "var(--accent)", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon size={18} />
+    <div style={{ background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 20, overflow: "hidden", marginBottom: 26 }}>
+      {rows.map((r, i) => (
+        <button key={r.key} type="button" className="tvt-wide-btn" onClick={r.onClick} style={{
+          width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "0 14px", margin: 0,
+          background: "transparent", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
+        }}>
+          <span aria-hidden style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: r.tint || "var(--accent)", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+            {r.icon}
+          </span>
+          {/* The divider starts after the icon, as in iOS lists. */}
+          <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, padding: r.sub ? "11px 0" : "14px 0", borderTop: i ? "1px solid var(--line-soft)" : "none" }}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 16 }}>{r.label}</span>
+              {r.sub && <span style={{ display: "block", fontSize: 12.5, color: "var(--ink-dim)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.sub}</span>}
             </span>
-            {/* The divider starts after the icon, as in iOS lists. */}
-            <span style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "14px 0", borderTop: i ? "1px solid var(--line-soft)" : "none" }}>
-              <span style={{ flex: 1, fontSize: 16 }}>{st.l}</span>
-              <span className="mono" style={{ fontSize: 15, color: "var(--ink-dim)" }}>{counts[st.v]}</span>
-              <span style={{ color: "var(--ink-faint)", display: "inline-flex" }}><ChevronIcon size={13} /></span>
-            </span>
-          </button>
-        );
-      })}
+            {r.detail != null && <span className="mono" style={{ fontSize: 15, color: "var(--ink-dim)" }}>{r.detail}</span>}
+            <span style={{ color: "var(--ink-faint)", display: "inline-flex" }}><ChevronIcon size={13} /></span>
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
 
-Object.assign(window, { watchStats, BADGES, ProfileView, cleanAvatar, Avatar, AvatarPicker });
+/* ============ Username ============
+   What Profile calls you: up to USERNAME_MAX characters, any but control
+   characters. Kept on the device and, signed in, in your profile (the
+   username column of tvt_profiles), so it follows you. */
+const USERNAME_MAX = 24;
+function cleanUsername(v) {
+  return typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, USERNAME_MAX) : "";
+}
+
+/* Edit Profile: the picture and the username. */
+function ProfileSheet({ username, setUsername, avatar, setAvatar, email, signedIn, onClose }) {
+  const { ref, closing, close } = useModalDismiss(onClose);
+  const [name, setName] = useStateP(username);
+  const clean = cleanUsername(name);
+  const save = (e) => {
+    e.preventDefault();
+    if (closing) return;
+    if (clean !== username) {
+      setUsername(clean);
+      showToast(clean ? `Username set to ${clean}` : "Username cleared");
+    }
+    close();
+  };
+  return (
+    <ModalFrame sheet dismiss={{ ref, closing, close }} label="Edit profile">
+      <form onSubmit={save}>
+        <ModalHead title="Edit Profile" onClose={close} />
+        <div style={{ display: "flex", justifyContent: "center", margin: "4px 0 18px" }}>
+          <AvatarPicker avatar={avatar} setAvatar={setAvatar} name={clean} email={email} stacked />
+        </div>
+        <Field label="Username" htmlFor="tvt-username">
+          <input id="tvt-username" value={name} onChange={(e) => setName(e.target.value)} placeholder="What should pree-it call you?"
+            maxLength={USERNAME_MAX + 10} autoComplete="nickname" autoCapitalize="words" spellCheck={false} enterKeyHint="done" style={fieldStyle()} />
+          <div style={{ display: "flex", gap: 10, fontSize: 12.5, color: "var(--ink-faint)", marginTop: 8, lineHeight: 1.4 }}>
+            <span style={{ flex: 1 }}>{signedIn ? "Shown on your profile, and synced to your other devices." : "Shown on your profile. Sign in to sync it."}</span>
+            <span className="mono" style={{ color: name.trim().length > USERNAME_MAX ? "var(--danger)" : undefined }}>{clean.length}/{USERNAME_MAX}</span>
+          </div>
+        </Field>
+        <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
+          <button type="button" onClick={close} style={ghostBtn()}>Cancel</button>
+          <button type="submit" style={accentBtn()}>Save</button>
+        </div>
+      </form>
+    </ModalFrame>
+  );
+}
+
+Object.assign(window, { watchStats, BADGES, ProfileView, cleanAvatar, Avatar, AvatarPicker, cleanUsername, ProfileSheet, ListRows });

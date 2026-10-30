@@ -46,8 +46,14 @@ const CSV_HEADS = {
 
 const normHead = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 /* A title for matching: no accents, case, punctuation or leading "The". */
-const normTitle = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+const normTitle = (s) => splitYear(String(s || "")).title.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
   .replace(/&/g, "and").replace(/^(the|a|an)\s+/, "").replace(/[^a-z0-9]/g, "");
+/* "Matlock (2024)", as some trackers tell remakes apart, is the title
+   "Matlock" and the year 2024. */
+function splitYear(t) {
+  const m = t.match(/^(.*\S)\s*\(((?:18|19|20)\d\d)\)$/);
+  return m ? { title: m[1], year: m[2] } : { title: t, year: "" };
+}
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
 
 /* parseCsv — rows of fields. Handles quoted fields (with commas, line
@@ -99,11 +105,15 @@ function csvKind(v) {
    airing status, which some exports put in a Status column. */
 function csvStatus(v) {
   v = normHead(v);
-  if (/^(watching|inprogress|currentlywatching|started|onhold|hold|paused|rewatching|uptodate|caughtup)$/.test(v)) return "watching";
-  if (/^(watchlist|plantowatch|wanttowatch|wanttosee|planned|towatch|notstarted|later|forlater|queue|backlog|ptw|saved|wishlist|unwatched|notwatched)$/.test(v)) return "watchlist";
+  if (/^(watching|inprogress|currentlywatching|started|onhold|hold|paused|rewatching|stopped|stoppedwatching)$/.test(v) || csvCaughtUp(v)) return "watching";
+  if (/^(watchlist|plantowatch|wanttowatch|wanttosee|planned|towatch|notstarted|notstartedyet|later|forlater|queue|backlog|ptw|saved|wishlist|unwatched|notwatched)$/.test(v)) return "watchlist";
   if (/^(watched|completed|complete|finished|seen|done)$/.test(v)) return "watched";
   return null;
 }
+/* A status saying you've seen everything out so far (TV Time's "Up to
+   date"). With no episode in the file, the show is caught up to its
+   latest episode once it's linked to TMDB. */
+const csvCaughtUp = (v) => /^(uptodate|caughtup|allcaughtup|uptodatewatching)$/.test(normHead(v));
 /* A date as ISO, or "" (Safari won't read "2024-01-31 20:15:00"). */
 function csvDate(v) {
   const t = Date.parse(String(v || "").trim().replace(/^(\d{4}-\d\d-\d\d) (\d)/, "$1T$2"));
@@ -134,7 +144,8 @@ function csvRecords(rows) {
   const recs = [];
   let skipped = 0;
   for (const r of rows.slice(best.i + 1)) {
-    const title = at(r, "title").slice(0, 200);
+    const named = splitYear(at(r, "title").slice(0, 200));
+    const title = named.title;
     const kindText = normHead(at(r, "kind"));
     // Games and podcasts aren't tracked; an episode row whose title is the
     // episode's (IMDb rates episodes one by one) can't be tied to its show.
@@ -145,16 +156,18 @@ function csvRecords(rows) {
     const season = sxe ? toInt(sxe[1] || sxe[3]) : toInt(at(r, "season"));
     const episode = sxe ? toInt(sxe[2] || sxe[4]) : toInt(at(r, "episode"));
     let kind = csvKind(kindText) || (tmdbUrl && tmdbUrl[1]) || null;
-    if (!kind && (showTitles || episode > 0)) kind = "tv";
+    const caughtUp = csvCaughtUp(at(r, "status"));
+    if (!kind && (showTitles || episode > 0 || caughtUp)) kind = "tv";
     if (!kind && (letterboxd || /letterboxd\.com|boxd\.it/.test(url))) kind = "movie";
     const date = csvDate(at(r, "added"));
-    const year = (at(r, "year").match(/\b(18|19|20)\d\d\b/) || at(r, "date").match(/\b(18|19|20)\d\d\b/) || [""])[0];
+    const year = (at(r, "year").match(/\b(18|19|20)\d\d\b/) || at(r, "date").match(/\b(18|19|20)\d\d\b/) || [named.year])[0];
     recs.push({
       title, kind, year,
       tmdbId: toInt(at(r, "tmdb")) || (tmdbUrl ? toInt(tmdbUrl[2]) : 0) || null,
       imdbId: ((at(r, "imdb") + " " + url).match(/tt\d{5,}/) || [""])[0],
       raw: parseFloat(at(r, "rating").replace(",", ".")) || 0,
       status: csvStatus(at(r, "status")),
+      caughtUp,
       season: season > 0 ? season : 0,
       episode: season > 0 && episode > 0 ? episode : 0,
       note: at(r, "note").slice(0, 2000),
@@ -188,7 +201,7 @@ function mergeRecs(a, b) {
   return {
     ...a,
     kind: a.kind || b.kind, tmdbId: a.tmdbId || b.tmdbId, imdbId: a.imdbId || b.imdbId, year: a.year || b.year,
-    rating: b.rating || a.rating, status, weak,
+    rating: b.rating || a.rating, status, weak, caughtUp: a.caughtUp || b.caughtUp,
     season: ep.season, episode: ep.episode,
     note: a.note || b.note,
     added: [a.added, b.added].filter(Boolean).sort()[0] || "",
@@ -254,7 +267,8 @@ const hasProgress = (i) => i.kind === "tv" && (i.episode > 0 || i.season > 1);
 /* planImport — the library after importing `files`: matched titles updated
    (a set status only moves a title further along, never back; ratings and
    progress fill in), the rest added. `toLink` lists titles that still need
-   TMDB (no id, or an id but no poster). */
+   TMDB (no id, or an id but no poster); `caughtUp` the shows to move on to
+   their latest episode once they're linked. */
 function planImport(files, items) {
   const recs = combineRecs(files.filter((f) => !f.error).flatMap((f) => f.recs.map((x) => withRole(x, f.role))));
   const byTmdb = new Map(items.filter((i) => i.tmdbId).map((i) => [`${i.kind}:${i.tmdbId}`, i]));
@@ -271,8 +285,10 @@ function planImport(files, items) {
 
   const changes = new Map();
   const fresh = [];
+  const caughtUp = new Set(); // ids of shows the file says you're up to date with
   for (const x of recs) {
     const found = find(x);
+    if (found && x.caughtUp && found.kind === "tv") caughtUp.add(found.id);
     const base = found && (changes.get(found.id) || found);
     if (!base) {
       fresh.push(x);
@@ -307,7 +323,11 @@ function planImport(files, items) {
       ...blankItem(x.status), title: x.title, kind: x.kind || "movie", tmdbId: x.tmdbId, year: x.year,
       rating: x.rating, season: x.season || 1, episode: x.episode, note: x.note, added: x.added || undefined, lastWatched: x.last || "",
     }));
-    if (item) { added.push(item); source.set(item.id, x); }
+    if (item) {
+      added.push(item);
+      source.set(item.id, x);
+      if (x.caughtUp && item.kind === "tv") caughtUp.add(item.id);
+    }
   }
 
   const toLink = [...added, ...changes.values()].filter((i) => !i.tmdbId || !i.poster).map((i) => {
@@ -320,7 +340,7 @@ function planImport(files, items) {
   for (const i of [...added, ...changes.values()]) if (before.get(i.id) !== i.status) into[i.status]++;
   return {
     items: [...added, ...items.map((i) => changes.get(i.id) || i)],
-    added: added.length, updated: changes.size, same: recs.length - added.length - changes.size, toLink, into,
+    added: added.length, updated: changes.size, same: recs.length - added.length - changes.size, toLink, into, caughtUp: [...caughtUp],
   };
 }
 
@@ -534,6 +554,7 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
           <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>{plan.updated}</span> updated ·{" "}
           <span className="mono">{plan.same}</span> already up to date.
           {into && <> Into {into}.</>}
+          {plan.caughtUp.length > 0 && ` ${plural(plan.caughtUp.length, "show")} marked up to date will jump to the latest episode out${tmdbKey ? "" : " once you add a TMDB key"}.`}
           {unlinked > 0 && (tmdbKey
             ? ` ${plural(unlinked, "title")} will then be matched on TMDB for posters and episode details.`
             : ` Add a TMDB key in Settings first if you want posters for the ${plural(unlinked, "title")} without one.`)}

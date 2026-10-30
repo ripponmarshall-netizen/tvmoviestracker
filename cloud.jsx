@@ -2,8 +2,8 @@
    The list still lives on the device first, so the app works offline and
    signed out. Signed in, each title is also a row in Supabase, and every
    device you sign in on merges its list with it, title by title: the
-   newer edit wins. Deletes travel too. Your TMDB key and profile picture
-   ride along in your profile. Clear SUPABASE_URL and the app goes back to device-only. */
+   newer edit wins. Deletes travel too. Your TMDB key, username and profile
+   picture ride along in your profile. Clear SUPABASE_URL and the app goes back to device-only. */
 const { useState: useStateS, useEffect: useEffectS, useRef: useRefS } = React;
 
 const SUPABASE_URL = "https://mjynccgncbgyfqntodrj.supabase.co";
@@ -249,7 +249,7 @@ function syncLabel(status) {
   return "Not synced yet";
 }
 
-function AccountSection({ session, sync, avatar }) {
+function AccountSection({ session, sync, avatar, username }) {
   const [email, setEmail] = useStateS("");
   const [password, setPassword] = useStateS("");
   const [busy, setBusy] = useStateS(false);
@@ -279,7 +279,7 @@ function AccountSection({ session, sync, avatar }) {
     return (
       <form onSubmit={signIn}>
         <div style={{ fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.5, marginBottom: 10 }}>
-          Sign in to keep your list and TMDB key in sync across your devices.
+          Sign in to keep your list, username and TMDB key in sync across your devices.
         </div>
         <div style={{ display: "grid", gap: 8 }}>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" aria-label="Email"
@@ -297,9 +297,10 @@ function AccountSection({ session, sync, avatar }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Avatar src={avatar} email={session.user.email} size={36} />
+        <Avatar src={avatar} name={username} email={session.user.email} size={36} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</div>
+          <div style={{ fontSize: 14.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{username || session.user.email}</div>
+          {username && <div style={{ fontSize: 12.5, color: "var(--ink-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</div>}
           <div aria-live="polite" style={{ fontSize: 12.5, color: failed ? "var(--danger)" : "var(--ink-dim)", marginTop: 2 }}>{syncLabel(sync.status)}</div>
         </div>
       </div>
