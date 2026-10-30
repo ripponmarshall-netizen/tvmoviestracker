@@ -19,17 +19,24 @@ create table if not exists public.tvt_items (
 create table if not exists public.tvt_profiles (
   user_id uuid primary key default auth.uid() references auth.users (id) on delete cascade,
   tmdb_key text,
+  avatar text,
   updated_at timestamptz not null default now()
 );
+
+-- Added in v1.5: the profile picture, a small JPEG as a data: URL (about
+-- 30 KB). Re-running this file on an existing project adds it.
+alter table public.tvt_profiles add column if not exists avatar text;
 
 alter table public.tvt_items enable row level security;
 alter table public.tvt_profiles enable row level security;
 
+drop policy if exists "tvt_items: owner only" on public.tvt_items;
 create policy "tvt_items: owner only" on public.tvt_items
   for all to authenticated
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "tvt_profiles: owner only" on public.tvt_profiles;
 create policy "tvt_profiles: owner only" on public.tvt_profiles
   for all to authenticated
   using ((select auth.uid()) = user_id)

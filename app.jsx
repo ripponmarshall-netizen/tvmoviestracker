@@ -2,7 +2,7 @@
    and the tab bar */
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.5.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -60,6 +60,7 @@ function normaliseItem(x) {
   const title = String(x.title ?? "").trim().slice(0, 200);
   if (!title) return null;
   const now = nowIso();
+  const updated = typeof x.updated === "string" ? x.updated : now;
   return {
     id: typeof x.id === "string" && x.id ? x.id : newId(),
     kind: pick(x.kind, KINDS, "tv"),
@@ -75,7 +76,11 @@ function normaliseItem(x) {
     poster: typeof x.poster === "string" && /^\/[\w.-]+$/.test(x.poster) ? x.poster : "",
     year: /^\d{4}$/.test(String(x.year ?? "")) ? String(x.year) : "",
     added: typeof x.added === "string" ? x.added : now,
-    updated: typeof x.updated === "string" ? x.updated : now,
+    updated,
+    // When you last moved it on (an episode ticked, or put on the go): Up
+    // Next keeps what you've watched lately and archives the rest. Titles
+    // saved before this existed count their last edit.
+    lastWatched: typeof x.lastWatched === "string" ? (Date.parse(x.lastWatched) ? x.lastWatched : "") : updated,
   };
 }
 /* A list from storage or a backup file: valid items only, unique ids
@@ -89,10 +94,19 @@ function cleanList(list) {
   });
 }
 function blankItem(status) {
-  return { id: newId(), kind: "tv", title: "", status, season: 1, episode: 0, rating: 0, note: "", tmdbId: null, poster: "", year: "" };
+  return { id: newId(), kind: "tv", title: "", status, season: 1, episode: 0, rating: 0, note: "", tmdbId: null, poster: "", year: "", lastWatched: "" };
 }
 // A fresh edit time, so this version wins when devices sync (undo uses it).
 const touch = (item) => ({ ...item, updated: nowIso() });
+/* An edit that moves a title on (a later episode, or into Watching) counts
+   as watching it, which keeps it in Up Next rather than the archive. A
+   rating or a note doesn't. */
+const progressRank = (i) => (i.kind === "tv" ? i.season * 10000 + i.episode : 0);
+function stampWatch(before, after) {
+  if (!before) return after;
+  const on = progressRank(after) > progressRank(before) || (after.status === "watching" && before.status !== "watching");
+  return on ? { ...after, lastWatched: nowIso() } : after;
+}
 
 function loadState() {
   let s = {};
@@ -104,6 +118,7 @@ function loadState() {
     filter: pick(s.filter, FILTERS, "all"),
     explore: pick(s.explore, FILTERS, "all"),
     tmdbKey: typeof s.tmdbKey === "string" ? s.tmdbKey : "",
+    avatar: cleanAvatar(s.avatar),
   };
 }
 function saveState(state) {
@@ -144,6 +159,7 @@ function App() {
   const [explore, setExplore] = useState(initial.explore);
   const [query, setQuery] = useState(""); // Explore's search
   const [tmdbKey, setTmdbKey] = useState(initial.tmdbKey);
+  const [avatar, setAvatar] = useState(initial.avatar); // profile picture, as a data: URL
   const [detail, setDetail] = useState(null); // the title open in the title sheet
   const [editing, setEditing] = useState(null); // the item open in the edit sheet
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -161,13 +177,14 @@ function App() {
   const session = useSession();
   const userId = session?.user?.id;
   const sync = useCloudSync(userId, items, itemsRef, updateItems);
-  useProfileKey(userId, tmdbKey, setTmdbKey);
+  useProfileField(userId, "tmdb_key", tmdbKey, setTmdbKey);
+  useProfileField(userId, "avatar", avatar, setAvatar, cleanAvatar);
   usePosterBackfill(items, tmdbKey, updateItems);
 
   // The app is on screen: hand the loading screen over to the header logo.
   useEffect(() => { window.tvtSplashDone?.(); }, []);
 
-  useEffect(() => { saveState({ items, theme, tab, filter, explore, tmdbKey }); }, [items, theme, tab, filter, explore, tmdbKey]);
+  useEffect(() => { saveState({ items, theme, tab, filter, explore, tmdbKey, avatar }); }, [items, theme, tab, filter, explore, tmdbKey, avatar]);
 
   useEffect(() => {
     const mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
@@ -205,13 +222,13 @@ function App() {
 
   const patchItem = (id, patch) => {
     const item = findItem(id);
-    if (item) replace(touch({ ...item, ...patch }));
+    if (item) replace(touch(stampWatch(item, { ...item, ...patch })));
   };
 
   const moveTo = (id, status) => {
     const before = findItem(id);
     if (!before || before.status === status) return;
-    replace(touch({ ...before, status }));
+    replace(touch(stampWatch(before, { ...before, status })));
     showToast(`Moved to ${statusLabel(status)}`, { action: { label: "Undo", onClick: () => replace(touch(before)) } });
   };
 
@@ -231,7 +248,7 @@ function App() {
     const d = item.kind === "tv" ? cachedDetails("tv", item.tmdbId) : null;
     const n = item.kind === "tv" ? nextEpisode(item, d) : null;
     if (!n) { moveTo(id, "watched"); return; }
-    const after = touch({ ...item, season: n.season, episode: n.episode, status: "watching" });
+    const after = touch(stampWatch(item, { ...item, season: n.season, episode: n.episode, status: "watching" }));
     replace(after);
     if (isFinished(d) && !nextEpisode(after, d)) {
       showToast(`That was the last episode of “${item.title}”`, { action: { label: "Mark Watched", onClick: () => moveTo(id, "watched") } });
@@ -239,10 +256,10 @@ function App() {
   };
 
   const saveItem = (draft) => {
-    const exists = itemsRef.current.some((i) => i.id === draft.id);
-    const item = normaliseItem(touch(draft));
+    const before = findItem(draft.id);
+    const item = normaliseItem(touch(stampWatch(before, draft)));
     if (!item) return;
-    if (exists) { replace(item); return; }
+    if (before) { replace(item); return; }
     updateItems((prev) => [item, ...prev]);
     showToast(`Added to ${statusLabel(item.status)}`);
   };
@@ -263,7 +280,7 @@ function App() {
     const before = itemsRef.current.find((i) => i.id === id);
     const q = before && quickAction(before);
     if (!q) return;
-    const after = touch({ ...before, ...q.patch });
+    const after = touch(stampWatch(before, { ...before, ...q.patch }));
     replace(after);
     if (after.status !== before.status) {
       showToast(`Moved to ${statusLabel(after.status)}`, { action: { label: "Undo", onClick: () => replace(touch(before)) } });
@@ -325,7 +342,10 @@ function App() {
         query={query} setQuery={setQuery} onOpen={openTile} onSettings={openSettings} />
     );
   } else if (tab === "profile") {
-    screen = <ProfileView key="profile" items={items} tmdbKey={tmdbKey} session={session} sync={sync} onOpenList={setList} onSettings={openSettings} />;
+    screen = (
+      <ProfileView key="profile" items={items} tmdbKey={tmdbKey} session={session} sync={sync} avatar={avatar} setAvatar={setAvatar}
+        onOpenList={setList} onSettings={openSettings} />
+    );
   } else {
     screen = (
       <WatchingView key="watching" items={items} tmdbKey={tmdbKey} onOpenItem={openItem} onOpenTile={openTile}
@@ -374,6 +394,8 @@ function App() {
           setTheme={setTheme}
           tmdbKey={tmdbKey}
           setTmdbKey={setTmdbKey}
+          avatar={avatar}
+          setAvatar={setAvatar}
           session={session}
           sync={sync}
           items={items}
@@ -765,7 +787,7 @@ function RatingInput({ value, onChange }) {
 }
 
 /* ============ Settings ============ */
-function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, session, sync, items, onImport, onImportCsv, onErase, onClose }) {
+function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, setAvatar, session, sync, items, onImport, onImportCsv, onErase, onClose }) {
   const { ref, closing, close } = useModalDismiss(onClose);
   const fileRef = useRef(null);
   const [testing, setTesting] = useState(false);
@@ -835,9 +857,12 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, session, sync, it
       <Field label="Appearance">
         <SegToggle full options={THEMES} value={theme} onChange={setTheme} label="Appearance" />
       </Field>
+      <Field label="Profile picture">
+        <AvatarPicker avatar={avatar} setAvatar={setAvatar} email={session?.user?.email} />
+      </Field>
       {cloud && (
         <Field label="Account">
-          <AccountSection session={session} sync={sync} />
+          <AccountSection session={session} sync={sync} avatar={avatar} />
         </Field>
       )}
       <Field label="Title search" htmlFor="tvt-tmdb">

@@ -114,19 +114,41 @@ function upNextInfo(item, d) {
   return { line, sub, progress, canTick: true, tick: "Watched" };
 }
 
+/* Where a title in Watching goes on the Watching screen. A show you haven't
+   started is "unstarted". Otherwise it's "recent" if you've watched it (or
+   added it) in the last RECENT_DAYS, or a new episode has come out since
+   you last watched, and "archived" if not. */
+const RECENT_DAYS = 30;
+function watchingGroup(item, d, now = Date.now()) {
+  if (item.kind === "tv" && item.season === 1 && item.episode === 0) return "unstarted";
+  const span = RECENT_DAYS * DAY_MS;
+  const last = Math.max(isoTime(item.lastWatched), isoTime(item.added));
+  if (now - last < span) return "recent";
+  const aired = isoTime(d?.lastDate);
+  if (item.kind === "tv" && aired > last && now - aired < span && nextEpisode(item, d)?.aired) return "recent";
+  return "archived";
+}
+const lastActive = (i) => Math.max(isoTime(i.lastWatched), isoTime(i.added));
+
 /* ============ Watching ============
-   Up next from what you've been watching, most recent first: the latest
-   as a big card, the rest as rows. Then your watchlist, titles like your
-   recent ones, and what you've finished lately. */
+   Up next from what you've watched lately, most recent first: the latest
+   as a big card, the rest as rows. Then shows you haven't started, your
+   watchlist, titles like your recent ones, what you've finished lately,
+   and, folded away, what you haven't watched in a while. */
 function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSeeAll, onExplore }) {
   const watching = items.filter((i) => i.status === "watching");
   usePrefetchDetails(watching, tmdbKey, true);
+  const [archiveOpen, setArchiveOpen] = useStateB(false);
   // Order fixed while you're here (as on the list screens), so a card you
   // tick doesn't jump under your finger. New ones go on top.
   const orderRef = useRefB(null);
   if (!orderRef.current) orderRef.current = byRecent(watching).map((i) => i.id);
-  const upNext = [...watching].sort((a, b) => orderRef.current.indexOf(a.id) - orderRef.current.indexOf(b.id));
-  const [hero, ...rest] = upNext;
+  const ordered = [...watching].sort((a, b) => orderRef.current.indexOf(a.id) - orderRef.current.indexOf(b.id));
+  const now = Date.now();
+  const groups = { recent: [], unstarted: [], archived: [] };
+  for (const i of ordered) groups[watchingGroup(i, cachedDetails(i.kind, i.tmdbId), now)].push(i);
+  const [hero, ...rest] = groups.recent;
+  const archived = groups.archived.sort((a, b) => lastActive(b) - lastActive(a));
   const watchlist = byRecent(items.filter((i) => i.status === "watchlist"));
   const watched = byRecent(items.filter((i) => i.status === "watched"));
   const seeds = byRecent(items.filter((i) => i.tmdbId && i.status !== "watchlist")).slice(0, 2);
@@ -147,6 +169,13 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
             </AnimatedRow>
           ))}
         </section>
+      ) : watching.length ? (
+        <Card style={{ textAlign: "center", padding: "22px 20px", marginBottom: 26 }}>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Nothing watched lately</div>
+          <div style={{ fontSize: 13.5, color: "var(--ink-dim)", lineHeight: 1.5, margin: "6px auto 0", maxWidth: 300 }}>
+            {groups.unstarted.length ? "Start a show below, or pick one back up from the archive." : "Pick something back up from the archive below."}
+          </div>
+        </Card>
       ) : (
         <Card style={{ textAlign: "center", padding: "30px 20px", marginBottom: 26 }}>
           <span className="tvt-pop" style={{ width: 56, height: 56, borderRadius: 999, background: "var(--fill)", color: "var(--ink-dim)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12, animationDelay: "0.2s" }}>
@@ -158,6 +187,14 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
           </div>
           <button type="button" onClick={onExplore} style={accentBtn()}>Explore</button>
         </Card>
+      )}
+
+      {groups.unstarted.length > 0 && (
+        <Shelf title="Not Started">
+          {groups.unstarted.map((item) => (
+            <PosterCard key={item.id} tile={item} onOpen={onOpenItem} sub={seasonsLine(item, cachedDetails("tv", item.tmdbId))} />
+          ))}
+        </Shelf>
       )}
 
       {watchlist.length > 0 && (
@@ -176,6 +213,31 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
             <PosterCard key={item.id} tile={item} onOpen={onOpenItem} sub={item.rating ? starText(item.rating) : item.year || (item.kind === "tv" ? "Show" : "Movie")} />
           ))}
         </Shelf>
+      )}
+
+      {archived.length > 0 && (
+        <section style={{ marginBottom: 26 }}>
+          <button type="button" onClick={() => setArchiveOpen((o) => !o)} aria-expanded={archiveOpen} style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 8, margin: "0 0 4px", padding: "4px 4px 6px",
+            background: "none", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
+          }}>
+            <span style={{ flex: 1, fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em" }}>Archived</span>
+            <span className="mono" style={{ fontSize: 13, color: "var(--ink-faint)" }}>{archived.length}</span>
+            <span aria-hidden style={{ display: "inline-flex", color: "var(--ink-faint)", transform: archiveOpen ? "rotate(90deg)" : "none", transition: "transform 0.25s var(--ease-snappy)" }}>
+              <ChevronIcon size={13} />
+            </span>
+          </button>
+          <div style={{ fontSize: 12.5, color: "var(--ink-dim)", lineHeight: 1.4, margin: "0 4px 10px" }}>
+            Not watched in the last {RECENT_DAYS} days. Tick an episode and it's back in Up Next; a new episode brings a show back too.
+          </div>
+          <Collapse open={archiveOpen}>
+            {archived.map((item) => (
+              <div key={item.id} style={{ marginBottom: 8 }}>
+                <UpNextRow item={item} d={cachedDetails(item.kind, item.tmdbId)} onOpen={onOpenItem} onTick={() => onAdvance(item.id)} lastWatched={lastActive(item)} />
+              </div>
+            ))}
+          </Collapse>
+        </section>
       )}
     </main>
   );
@@ -216,7 +278,9 @@ function UpNextHero({ item, d, onOpen, onTick }) {
   );
 }
 
-function UpNextRow({ item, d, onOpen, onTick }) {
+/* An Up Next row. With `lastWatched` (archived rows), when you last watched
+   it stands in for the note under the episode. */
+function UpNextRow({ item, d, onOpen, onTick, lastWatched }) {
   const info = upNextInfo(item, d);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 18, padding: 10 }}>
@@ -231,7 +295,9 @@ function UpNextRow({ item, d, onOpen, onTick }) {
         <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
           <span style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
           <span key={info.line} className="mono tvt-pop" style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>{info.line}</span>
-          <span style={{ fontSize: 12.5, color: "var(--ink-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{info.sub}</span>
+          <span style={{ fontSize: 12.5, color: "var(--ink-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {lastWatched ? `Last watched ${fmtAgo(lastWatched)}` : info.sub}
+          </span>
           {info.progress != null && <ProgressBar value={info.progress} height={3} style={{ marginTop: 3 }} />}
         </span>
       </button>
@@ -242,6 +308,22 @@ function UpNextRow({ item, d, onOpen, onTick }) {
       )}
     </div>
   );
+}
+
+/* How long ago a time was, roughly: "3 weeks ago", "5 months ago". */
+function fmtAgo(t, now = Date.now()) {
+  const days = Math.floor((now - t) / DAY_MS);
+  if (days < 1) return "today";
+  if (days < 14) return days === 1 ? "yesterday" : `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  if (days < 365) return `${Math.round(days / 30)} months ago`;
+  return `over ${plural(Math.floor(days / 365), "year")} ago`;
+}
+
+/* The line under a show you haven't started: its seasons and year. */
+function seasonsLine(item, d) {
+  const n = d?.seasons ? Object.keys(d.seasons).length : 0;
+  return [n ? plural(n, "season") : "", item.year].filter(Boolean).join(" · ") || "Show";
 }
 
 /* "Because you watched X": TMDB's recommendations for one of your recent
@@ -463,4 +545,4 @@ function SearchList({ state, kind, statusOf, onOpen }) {
   );
 }
 
-Object.assign(window, { titleKey, useLibraryIndex, Backdrop, PosterCard, Shelf, upNextInfo, WatchingView, ExploreView });
+Object.assign(window, { titleKey, useLibraryIndex, Backdrop, PosterCard, Shelf, upNextInfo, watchingGroup, WatchingView, ExploreView });

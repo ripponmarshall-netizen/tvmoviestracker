@@ -1,5 +1,7 @@
-/* profile.jsx — your account, what you've watched (time, episodes, movies,
-   genres), awards for milestones, and your library's lists. */
+/* profile.jsx — your account and profile picture, what you've watched
+   (time, episodes, movies, genres), awards for milestones, and your
+   library's lists. */
+const { useRef: useRefP } = React;
 
 /* For titles TMDB can't time (typed in by hand, or no runtime listed). */
 const EST_EPISODE_MIN = 45;
@@ -60,7 +62,7 @@ const BADGES = [
   { id: "eps1000", icon: "👑", hue: 50, name: "Series Royalty", desc: "Watch 1,000 episodes", goal: 1000, of: (s) => s.episodes },
 ];
 
-function ProfileView({ items, tmdbKey, session, sync, onOpenList, onSettings }) {
+function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, onOpenList, onSettings }) {
   // Runtimes and episode counts for everything that counts towards time.
   const pending = usePrefetchDetails(items.filter((i) => i.status !== "watchlist"), tmdbKey);
   const s = watchStats(items);
@@ -72,7 +74,7 @@ function ProfileView({ items, tmdbKey, session, sync, onOpenList, onSettings }) 
   return (
     <main className="tvt-view tvt-page" style={{ padding: "8px 16px calc(120px + var(--safe-bottom))" }}>
       <ScreenTitle title="Profile" />
-      <AccountCard session={session} sync={sync} onSettings={onSettings} />
+      <AccountCard session={session} sync={sync} avatar={avatar} setAvatar={setAvatar} onSettings={onSettings} />
 
       <SectionHeader title="Watch Time" detail={pending ? "Updating…" : null} />
       <WatchTimeCard s={s} />
@@ -118,28 +120,133 @@ function ProfileView({ items, tmdbKey, session, sync, onOpenList, onSettings }) 
   );
 }
 
-function AccountCard({ session, sync, onSettings }) {
+/* ============ Profile picture ============
+   Cropped to a square and shrunk to 256px on the device, then kept as a
+   JPEG data: URL (about 20–40 KB): in local storage, and in your profile
+   when you're signed in, so it needs no storage bucket. */
+const AVATAR_PX = 256;
+const AVATAR_MAX = 400000; // characters; a 256px JPEG is a tenth of this
+
+/* A saved or synced picture, or "" if it isn't one. */
+function cleanAvatar(v) {
+  return typeof v === "string" && v.length <= AVATAR_MAX && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/.test(v) ? v : "";
+}
+
+/* A picked photo as a square avatar, centred. Rejects with a message to show. */
+async function avatarFromFile(file) {
+  if (file.type && !file.type.startsWith("image/")) throw new Error("That file isn't a photo");
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error("Couldn't open that photo"));
+      im.src = url;
+    });
+    const w = img.naturalWidth, h = img.naturalHeight, side = Math.min(w, h);
+    if (!side) throw new Error("Couldn't open that photo");
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = AVATAR_PX;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#808080"; // behind a transparent PNG, which JPEG can't keep
+    ctx.fillRect(0, 0, AVATAR_PX, AVATAR_PX);
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, (w - side) / 2, (h - side) / 2, side, side, 0, 0, AVATAR_PX, AVATAR_PX);
+    const out = cleanAvatar(canvas.toDataURL("image/jpeg", 0.85));
+    if (!out) throw new Error("Couldn't use that photo");
+    return out;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/* A hidden photo picker: returns the <input> to render and a function that
+   opens it. On iPhone it offers the photo library, the camera and Files. */
+function useAvatarInput(setAvatar) {
+  const ref = useRefP(null);
+  const pick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // so choosing the same photo again still fires
+    if (!file) return;
+    try {
+      setAvatar(await avatarFromFile(file));
+      showToast("Profile picture updated");
+    } catch (err) {
+      showToast(err.message || "Couldn't use that photo");
+    }
+  };
+  return [<input ref={ref} type="file" accept="image/*" onChange={pick} hidden />, () => ref.current?.click()];
+}
+
+/* The picture in a circle; without one, your initial (or a person). */
+function Avatar({ src, email, size = 56 }) {
+  return (
+    <span aria-hidden style={{
+      width: size, height: size, borderRadius: 999, flexShrink: 0, overflow: "hidden",
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      background: "linear-gradient(145deg, color-mix(in oklab, var(--accent) 85%, #fff), color-mix(in oklab, var(--accent) 60%, #000))",
+      color: "#fff", fontSize: Math.round(size * 0.43), fontWeight: 700,
+    }}>
+      {src ? <img key={src} src={src} alt="" className="tvt-pop" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        : email ? email[0].toUpperCase() : <PersonIcon size={Math.round(size / 2)} />}
+    </span>
+  );
+}
+
+/* Settings: the picture, with Choose and Remove. */
+function AvatarPicker({ avatar, setAvatar, email }) {
+  const [input, choose] = useAvatarInput(setAvatar);
+  const remove = () => {
+    const before = avatar;
+    setAvatar("");
+    showToast("Profile picture removed", { action: { label: "Undo", onClick: () => setAvatar(before) } });
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <Avatar src={avatar} email={email} size={52} />
+      <button type="button" onClick={choose} style={ghostBtn()}>{avatar ? "Change Photo" : "Choose Photo"}</button>
+      {avatar && <button type="button" onClick={remove} style={{ ...ghostBtn(), color: "var(--danger)" }}>Remove</button>}
+      {input}
+    </div>
+  );
+}
+
+/* Your picture (tap it to change it) and account; the rest opens Settings.
+   Two buttons side by side, as buttons can't nest. */
+function AccountCard({ session, sync, avatar, setAvatar, onSettings }) {
+  const [input, choose] = useAvatarInput(setAvatar);
   const email = session?.user?.email || "";
   const sub = session === undefined ? "Checking sign-in…"
     : session ? syncLabel(sync.status)
     : cloud ? "Sign in to sync across your devices" : "Saved on this device";
   return (
-    <button type="button" className="tvt-wide-btn" onClick={onSettings} style={{
-      width: "100%", display: "flex", alignItems: "center", gap: 14, marginBottom: 26, padding: 14,
+    <div style={{
+      display: "flex", alignItems: "center", gap: 14, marginBottom: 26, padding: 14,
       background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 20,
-      textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
     }}>
-      <span aria-hidden style={{
-        width: 56, height: 56, borderRadius: 999, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center",
-        background: "linear-gradient(145deg, color-mix(in oklab, var(--accent) 85%, #fff), color-mix(in oklab, var(--accent) 60%, #000))",
-        color: "#fff", fontSize: 24, fontWeight: 700,
-      }}>{email ? email[0].toUpperCase() : <PersonIcon size={28} />}</span>
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: "block", fontSize: 17, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{email || "Your Library"}</span>
-        <span style={{ display: "block", fontSize: 13, color: sync.status.state === "error" ? "var(--danger)" : "var(--ink-dim)", marginTop: 2 }}>{sub}</span>
-      </span>
-      <span style={{ color: "var(--ink-faint)", display: "inline-flex" }}><ChevronIcon /></span>
-    </button>
+      <button type="button" onClick={choose} aria-label={avatar ? "Change profile picture" : "Add a profile picture"} style={{
+        position: "relative", flexShrink: 0, display: "inline-flex", padding: 0, margin: 0,
+        background: "none", border: "none", borderRadius: 999, cursor: "pointer", transition: "var(--press)",
+      }}>
+        <Avatar src={avatar} email={email} size={56} />
+        <span aria-hidden style={{
+          position: "absolute", right: -3, bottom: -3, width: 24, height: 24, borderRadius: 999,
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          background: "var(--accent)", color: "var(--accent-ink)", border: "2px solid var(--bg-1)",
+        }}><CameraIcon size={13} /></span>
+      </button>
+      {input}
+      <button type="button" className="tvt-wide-btn" onClick={onSettings} style={{
+        flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, padding: 0, margin: 0,
+        background: "transparent", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
+      }}>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 17, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{email || "Your Library"}</span>
+          <span style={{ display: "block", fontSize: 13, color: sync.status.state === "error" ? "var(--danger)" : "var(--ink-dim)", marginTop: 2 }}>{sub}</span>
+        </span>
+        <span style={{ color: "var(--ink-faint)", display: "inline-flex" }}><ChevronIcon /></span>
+      </button>
+    </div>
   );
 }
 
@@ -259,4 +366,4 @@ function LibraryRows({ counts, onOpen }) {
   );
 }
 
-Object.assign(window, { watchStats, BADGES, ProfileView });
+Object.assign(window, { watchStats, BADGES, ProfileView, cleanAvatar, Avatar, AvatarPicker });

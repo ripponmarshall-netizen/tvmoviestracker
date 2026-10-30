@@ -2,8 +2,8 @@
    The list still lives on the device first, so the app works offline and
    signed out. Signed in, each title is also a row in Supabase, and every
    device you sign in on merges its list with it, title by title: the
-   newer edit wins. Deletes travel too. Your TMDB key rides along in your
-   profile. Clear SUPABASE_URL and the app goes back to device-only. */
+   newer edit wins. Deletes travel too. Your TMDB key and profile picture
+   ride along in your profile. Clear SUPABASE_URL and the app goes back to device-only. */
 const { useState: useStateS, useEffect: useEffectS, useRef: useRefS } = React;
 
 const SUPABASE_URL = "https://mjynccgncbgyfqntodrj.supabase.co";
@@ -177,41 +177,64 @@ function useCloudSync(userId, items, itemsRef, updateItems) {
 }
 
 /* ============ Profile ============
-   One row per user. For now it carries the TMDB key, so search works on
-   every device you sign in on; add profile fields here as columns. */
-function useProfileKey(userId, tmdbKey, setTmdbKey) {
+   One row per user, a column per setting that follows you between devices
+   (the TMDB key, the profile picture). useProfileField keeps one column in
+   step with `value`, saving each change once the typing stops.
+   On sign-in (and each launch) it's a three-way merge against the value
+   this device last agreed with the server (kept as a hash): whichever side
+   changed since wins, so clearing a setting on one device clears it
+   everywhere rather than being pushed back by the others. If both changed,
+   or this device has never synced, the server's wins (or gets this
+   device's, if it has none).
+   Each column loads and saves on its own, so one the database doesn't have
+   yet (schema.sql not re-run) can't stop the others syncing. */
+const hashStr = (str) => {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = (h * 33 + str.charCodeAt(i)) | 0;
+  return `${h >>> 0}:${str.length}`;
+};
+function useProfileField(userId, column, value, setValue, clean = (v) => v) {
   const loaded = useRefS(false);
   const saved = useRefS(null);
-  const keyRef = useRefS(tmdbKey);
-  keyRef.current = tmdbKey;
-
-  const save = (key) => {
-    if (!loaded.current || key === saved.current) return;
-    cloud.from(PROFILES_TABLE).upsert({ user_id: userId, tmdb_key: key || null, updated_at: nowIso() })
-      .then(({ error }) => { if (!error) saved.current = key; });
+  const valueRef = useRefS(value);
+  valueRef.current = value;
+  const agreedKey = `tvt:profile:${userId}:${column}`;
+  const agree = (v) => {
+    saved.current = v;
+    try { localStorage.setItem(agreedKey, hashStr(v || "")); } catch {}
   };
 
-  // On sign-in: the profile's key wins; if it has none, it gets this one.
+  const save = (v) => {
+    if (!loaded.current || v === saved.current) return;
+    cloud.from(PROFILES_TABLE).upsert({ user_id: userId, [column]: v || null, updated_at: nowIso() })
+      .then(({ error }) => { if (!error) agree(v); });
+  };
+
   useEffectS(() => {
     loaded.current = false;
     saved.current = null;
     if (!cloud || !userId) return;
     let live = true;
-    cloud.from(PROFILES_TABLE).select("tmdb_key").maybeSingle().then(({ data, error }) => {
+    cloud.from(PROFILES_TABLE).select(column).maybeSingle().then(({ data, error }) => {
       if (!live || error) return;
       loaded.current = true;
-      if (data?.tmdb_key) { saved.current = data.tmdb_key; setTmdbKey(data.tmdb_key); }
-      else if (keyRef.current) save(keyRef.current);
+      const theirs = clean(data?.[column] || "");
+      const mine = valueRef.current || "";
+      let agreed = null;
+      try { agreed = localStorage.getItem(agreedKey); } catch {}
+      if (hashStr(theirs) === hashStr(mine)) agree(theirs);
+      // Only this device changed it since (or the server has none yet).
+      else if (agreed === hashStr(theirs) || (!theirs && agreed == null)) { saved.current = theirs; save(mine); }
+      else { agree(theirs); setValue(theirs); }
     });
     return () => { live = false; };
   }, [userId]);
 
-  // Then each change to the key is saved, once the typing stops.
   useEffectS(() => {
     if (!cloud || !userId) return;
-    const t = setTimeout(() => save(keyRef.current), 800);
+    const t = setTimeout(() => save(valueRef.current), 800);
     return () => clearTimeout(t);
-  }, [tmdbKey, userId]);
+  }, [value, userId]);
 }
 
 /* ============ Account (in Settings) ============ */
@@ -226,7 +249,7 @@ function syncLabel(status) {
   return "Not synced yet";
 }
 
-function AccountSection({ session, sync }) {
+function AccountSection({ session, sync, avatar }) {
   const [email, setEmail] = useStateS("");
   const [password, setPassword] = useStateS("");
   const [busy, setBusy] = useStateS(false);
@@ -274,10 +297,7 @@ function AccountSection({ session, sync }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span aria-hidden className="tvt-pop" style={{
-          width: 36, height: 36, borderRadius: 999, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center",
-          background: "color-mix(in oklab, var(--accent) 18%, transparent)", color: "var(--accent)", fontWeight: 700, fontSize: 15,
-        }}>{(session.user.email || "?")[0].toUpperCase()}</span>
+        <Avatar src={avatar} email={session.user.email} size={36} />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 14.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</div>
           <div aria-live="polite" style={{ fontSize: 12.5, color: failed ? "var(--danger)" : "var(--ink-dim)", marginTop: 2 }}>{syncLabel(sync.status)}</div>
@@ -291,4 +311,4 @@ function AccountSection({ session, sync }) {
   );
 }
 
-Object.assign(window, { cloud, useSession, useCloudSync, useProfileKey, AccountSection, mergeRemote, pendingRows });
+Object.assign(window, { cloud, useSession, useCloudSync, useProfileField, AccountSection, mergeRemote, pendingRows });
