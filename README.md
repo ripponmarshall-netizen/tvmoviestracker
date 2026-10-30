@@ -2,9 +2,9 @@
 
 A small installable web app (PWA) for keeping track of the shows and movies you're **watching**, **want to watch** and have **watched**. Three tabs along the bottom:
 
-- **Watching**: what's up next from what you've been watching (the next episode, rolling on to the next season), your watchlist, titles like your recent ones and what you've finished lately.
+- **Watching**: what's up next from what you've watched in the last 30 days (the next episode, rolling on to the next season), shows you've put on the go but not started, your watchlist, titles like your recent ones, what you've finished lately and, folded away at the bottom, an archive of what you haven't watched in a while. Ticking an episode of an archived show brings it back to Up Next, and so does a new episode airing.
 - **Explore**: what's trending and popular on TMDB, for shows, movies or both, with search.
-- **Profile**: total watch time split by shows and movies, top genres, awards for milestones, and your library's lists.
+- **Profile**: your profile picture (tap it to change it), total watch time split by shows and movies, top genres, awards for milestones, and your library's lists.
 
 Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations, sheets you can pull down to close, and a night-sky loading screen whose logo leaps into the header.
 
@@ -29,7 +29,7 @@ The key is stored on the device and, once you're signed in, in your profile, so 
 
 This repo already points at its Supabase project, with the schema applied, so only steps 2 and 3 are left to do. For a fresh project, do all four.
 
-1. Run [`supabase/schema.sql`](supabase/schema.sql) in your project's **SQL Editor**. It only adds two `tvt_`-prefixed tables with row-level security, so it can share a project with other apps.
+1. Run [`supabase/schema.sql`](supabase/schema.sql) in your project's **SQL Editor**. It only adds two `tvt_`-prefixed tables with row-level security, so it can share a project with other apps. It's safe to run again, and running it again is how an existing project picks up new columns (v1.5 added `avatar`, for the profile picture; until it's there the picture stays on each device and everything else syncs as usual).
 2. **Authentication → Users → Add user → Create new user**: your email and a password, with *Auto Confirm User* ticked.
 3. **Authentication → Sign In / Providers**: turn off *Allow new users to sign up*, so nobody else can make an account in your project.
 4. Put the project URL and its **publishable** key (Project Settings → API Keys) at the top of `cloud.jsx`. Both are meant to be public; row-level security is what protects the data.
@@ -44,10 +44,10 @@ Then **Settings → Account → Sign in**. Sign-in uses a password rather than a
 | `styles.css` | Colour tokens (dark and light), spring easings, and every animation. |
 | `components.jsx` | Shared building blocks: `Card`, `SegToggle`, button styles, `ScreenTitle`, `SectionHeader`, `ProgressBar`, `ModalFrame` (sheets and dialogs), `PullToRefresh`, `showToast`, `askConfirm`, `AnimatedRow`, `Collapse`, icons. |
 | `tmdb.jsx` | TMDB search, image URLs, title details (cached on the device), the Explore lists, and the episode maths (`nextEpisode`, `episodesWatched`, `airedEpisodes`). |
-| `cloud.jsx` | Supabase config, sign-in, the profile (TMDB key) and sync. |
+| `cloud.jsx` | Supabase config, sign-in, the profile (TMDB key, profile picture) and sync. |
 | `detail.jsx` | The title sheet (`TitleSheet`): artwork, the facts strip, status tiles, progress, rating, more like this. |
-| `browse.jsx` | The Watching and Explore screens, and the poster cards and shelves they're built from. |
-| `profile.jsx` | The Profile screen: `watchStats`, the `BADGES` list, the library rows. |
+| `browse.jsx` | The Watching and Explore screens (`watchingGroup` decides Up Next, Not Started or Archived), and the poster cards and shelves they're built from. |
+| `profile.jsx` | The Profile screen: the profile picture (`avatarFromFile`, `AvatarPicker`), `watchStats`, the `BADGES` list, the library rows. |
 | `importcsv.jsx` | CSV import: the parser, column matching (`CSV_HEADS`), merging into the library (`planImport`), matching titles on TMDB afterwards, and the import sheet. |
 | `app.jsx` | The data model, routing between tabs, the list screens, add/edit sheet, settings and tab bar. |
 | `supabase/schema.sql` | The tables and row-level security for sync. |
@@ -87,9 +87,16 @@ Signed in, each title is also a row in `tvt_items`, with the whole item in a `da
   rating,            // 0–5 in half stars, 0 = unrated
   note,
   tmdbId, poster, year, // from TMDB search; null / "" for titles typed in
-  added, updated     // ISO dates; `updated` decides which edit wins a sync
+  added, updated,    // ISO dates; `updated` decides which edit wins a sync
+  lastWatched        // ISO date you last moved it on ("" = never); Up Next vs Archived
 }
 ```
+
+### Up Next, Not Started and Archived
+
+A show in Watching still at S1 · E0 goes in *Not Started*. Anything else is in *Up Next* if you've watched it or added it in the last 30 days (`RECENT_DAYS` in `browse.jsx`), or if an episode has aired in that time that you haven't seen; otherwise it's *Archived*. `lastWatched` is set when an edit moves a title on: an episode ticked or stepped forward, or the title moved into Watching. Ratings, notes, imports of a backup and sync leave it alone. Titles saved before v1.5 count their last edit. A CSV watch history sets it from the latest date in the file.
+
+The profile picture is cropped square and shrunk to 256px on the device, then kept as a small JPEG (about 30 KB) in `tvt:v1` and, signed in, in the `avatar` column of `tvt_profiles`. Profile settings sync by a three-way merge against what each device last agreed with the server, so clearing one (the picture or the TMDB key) on one device clears it on the others.
 
 ### How watch time is counted
 
@@ -106,7 +113,7 @@ A watched movie counts its TMDB runtime. A show counts the episodes up to your p
 - **A new one-tap button on a row**: add a case to `quickAction`. If it moves the title to another tab, the row folds away and an Undo toast appears automatically.
 - **A new file**: add a `<script type="text/babel">` tag before `app.jsx` in `index.html` and list it in `ASSETS` in `sw.js` (CI fails if you forget). Files share one global scope, so give hooks unique names, as `components.jsx` does (`useStateC`); CI fails if two files declare the same top-level name.
 - **More from TMDB** (cast, where to stream): `tmdbGet` in `tmdb.jsx` calls any endpoint, and each linked title has its `tmdbId`. For something on the title sheet, add it to `compactDetails` (and to the `append_to_response` in `loadDetails` if it's a sub-request).
-- **A profile setting that follows you**: add a column to `tvt_profiles` and load/save it next to the TMDB key in `useProfileKey` (`cloud.jsx`).
+- **A profile setting that follows you**: add a column to `tvt_profiles` (an `alter table … add column if not exists` in `schema.sql`) and one `useProfileField(userId, "column", value, setValue)` call in `App`.
 
 ## Motion cheatsheet
 

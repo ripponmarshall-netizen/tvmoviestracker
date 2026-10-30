@@ -112,7 +112,7 @@ function csvDate(v) {
 
 /* csvRecords — a file's rows as titles: { title, kind (or null when the
    file doesn't say), tmdbId, imdbId, year, rating (0–5 in halves), status, season,
-   episode, note, added }. Rows for the same title (a watch history has one
+   episode, note, added, last (the latest date, for a watch history) }. Rows for the same title (a watch history has one
    per episode) are combined. Returns null when no row looks like a
    header. */
 function csvRecords(rows) {
@@ -147,6 +147,7 @@ function csvRecords(rows) {
     let kind = csvKind(kindText) || (tmdbUrl && tmdbUrl[1]) || null;
     if (!kind && (showTitles || episode > 0)) kind = "tv";
     if (!kind && (letterboxd || /letterboxd\.com|boxd\.it/.test(url))) kind = "movie";
+    const date = csvDate(at(r, "added"));
     const year = (at(r, "year").match(/\b(18|19|20)\d\d\b/) || at(r, "date").match(/\b(18|19|20)\d\d\b/) || [""])[0];
     recs.push({
       title, kind, year,
@@ -157,7 +158,8 @@ function csvRecords(rows) {
       season: season > 0 ? season : 0,
       episode: season > 0 && episode > 0 ? episode : 0,
       note: at(r, "note").slice(0, 2000),
-      added: csvDate(at(r, "added")),
+      added: date,
+      last: date,
     });
   }
 
@@ -174,8 +176,8 @@ function csvRecords(rows) {
 }
 
 const laterEp = (a, b) => (b.season > a.season || (b.season === a.season && b.episode > a.episode) ? b : a);
-/* Two records of one title as one: the furthest progress, the later
-   non-zero rating, a set status over a guessed (`weak`) one and, between
+/* Two records of one title as one: the furthest progress, the earliest
+   and latest dates, the later non-zero rating, a set status over a guessed (`weak`) one and, between
    equals, the furthest along. */
 function mergeRecs(a, b) {
   const ep = laterEp(a, b);
@@ -190,6 +192,7 @@ function mergeRecs(a, b) {
     season: ep.season, episode: ep.episode,
     note: a.note || b.note,
     added: [a.added, b.added].filter(Boolean).sort()[0] || "",
+    last: [a.last, b.last].filter(Boolean).sort().pop() || "",
   };
 }
 /* combineRecs — one record per title. The same title is matched by TMDB
@@ -278,7 +281,11 @@ function planImport(files, items) {
     const next = { ...base };
     if (x.status && !x.weak && STATUS_RANK[x.status] > STATUS_RANK[next.status]) next.status = x.status;
     if (x.rating) next.rating = x.rating;
-    if (next.kind === "tv" && x.season && laterEp(next, x) === x) { next.season = x.season; next.episode = x.episode; }
+    if (next.kind === "tv" && x.season && laterEp(next, x) === x) {
+      next.season = x.season;
+      next.episode = x.episode;
+      if (x.last > (next.lastWatched || "")) next.lastWatched = x.last;
+    }
     // Episodes watched mean it's started, even if a guessed status said
     // Watchlist (this is how a re-import puts shows back on the go).
     if (next.status === "watchlist" && hasProgress(next)) next.status = "watching";
@@ -298,7 +305,7 @@ function planImport(files, items) {
   for (const x of fresh) {
     const item = normaliseItem(touch({
       ...blankItem(x.status), title: x.title, kind: x.kind || "movie", tmdbId: x.tmdbId, year: x.year,
-      rating: x.rating, season: x.season || 1, episode: x.episode, note: x.note, added: x.added || undefined,
+      rating: x.rating, season: x.season || 1, episode: x.episode, note: x.note, added: x.added || undefined, lastWatched: x.last || "",
     }));
     if (item) { added.push(item); source.set(item.id, x); }
   }

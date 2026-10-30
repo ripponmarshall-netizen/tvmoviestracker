@@ -720,6 +720,9 @@ function CompassIcon({ size }) {
 function PersonIcon({ size }) {
   return <Svg size={size}><circle cx="12" cy="8.5" r="3.6" /><path d="M5 19.6c1.3-3.3 3.9-4.9 7-4.9s5.7 1.6 7 4.9" /></Svg>;
 }
+function CameraIcon({ size = 18 }) {
+  return <Svg size={size} sw={2}><path d="M4 8.5h3l1.6-2.5h6.8L17 8.5h3v10H4z" /><circle cx="12" cy="13.2" r="3.2" /></Svg>;
+}
 function SearchIcon({ size = 17 }) {
   return <Svg size={size} sw={2}><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4" /></Svg>;
 }
@@ -748,5 +751,5 @@ Object.assign(window, {
   ScreenTitle, SectionHeader, ProgressBar,
   ModalFrame, ModalHead, springTo, useModalDismiss, PullToRefresh, downloadBlob,
   XIcon, PlusIcon, MinusIcon, GearIcon, PlayIcon, BookmarkIcon, CheckCircleIcon, StarIcon,
-  CompassIcon, PersonIcon, SearchIcon, CheckIcon, ChevronIcon, ActivityIcon,
+  CompassIcon, PersonIcon, CameraIcon, SearchIcon, CheckIcon, ChevronIcon, ActivityIcon,
 });

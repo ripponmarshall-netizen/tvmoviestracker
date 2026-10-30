@@ -184,8 +184,8 @@ function detailsStale(d) {
 
 /* The parts of TMDB's /tv/{id} or /movie/{id} the app uses. For a show,
    `seasons` maps season number to episode count (specials left out),
-   `last` is the latest aired episode as [season, episode], and `next` the
-   next one announced. `rt` is minutes: a movie's runtime, or a show's
+   `last` is the latest aired episode as [season, episode] (`lastDate` the
+   day it aired), and `next` the next one announced. `rt` is minutes: a movie's runtime, or a show's
    typical episode (0 when TMDB doesn't know). */
 function compactDetails(kind, r) {
   const tv = kind === "tv";
@@ -214,6 +214,7 @@ function compactDetails(kind, r) {
     network: tv ? r.networks?.[0]?.name || "" : "",
     seasons: tv ? seasons : null,
     last: last ? [last.season_number, last.episode_number] : null,
+    lastDate: last?.air_date || "",
     next: next ? { s: next.season_number, e: next.episode_number, date: next.air_date || "" } : null,
   };
 }
