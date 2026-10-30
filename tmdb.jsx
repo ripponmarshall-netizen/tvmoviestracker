@@ -103,9 +103,9 @@ const DETAILS_STORE = "tvt:tmdb:v1";
 const DETAILS_MAX = 400; // past this, the longest-unrefreshed are dropped
 const detailsKey = (kind, id) => `${kind}:${id}`;
 let detailsMem = null;
-const recsMem = new Map();
 const detailsInflight = new Map();
 const detailsFailed = new Set(); // not retried until back online or reload
+const detailsMounted = new Map(); // titles a screen or sheet is showing, for pull to refresh
 const detailsSubs = new Set();
 window.addEventListener("online", () => detailsFailed.clear());
 
@@ -129,6 +129,35 @@ function saveDetailsSoon() {
     try { localStorage.setItem(DETAILS_STORE, JSON.stringify(all)); } catch { try { localStorage.removeItem(DETAILS_STORE); } catch {} }
   }, 500);
 }
+/* "More like this" for the titles you've opened lately, kept on the device
+   too, so shelves and sheets open with it. Stored without overviews (the
+   sheet fetches the title's own) to keep it small. */
+const RECS_STORE = "tvt:recs:v1";
+const RECS_MAX = 60;
+let recsMem = null;
+function recsAll() {
+  if (!recsMem) {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(RECS_STORE) || "{}") || {}; } catch {}
+    recsMem = new Map(Object.entries(saved).sort((a, b) => a[1].at - b[1].at).map(([k, v]) => [k, v.tiles]));
+  }
+  return recsMem;
+}
+let recsSaveTimer = 0;
+function setRecs(k, tiles) {
+  const all = recsAll();
+  all.delete(k); // re-inserted last: the Map keeps the newest at the end
+  all.set(k, tiles);
+  while (all.size > RECS_MAX) all.delete(all.keys().next().value);
+  clearTimeout(recsSaveTimer);
+  recsSaveTimer = setTimeout(() => {
+    const out = {};
+    let at = 0;
+    for (const [key, list] of recsAll()) out[key] = { at: at++, tiles: list.map(({ overview, ...t }) => t) };
+    try { localStorage.setItem(RECS_STORE, JSON.stringify(out)); } catch { try { localStorage.removeItem(RECS_STORE); } catch {} }
+  }, 700);
+}
+
 // Batched, so a burst of fetches re-renders once rather than per title.
 let detailsNotifyTimer = 0;
 function notifyDetails() {
@@ -190,7 +219,7 @@ function loadDetails(kind, id, key) {
     .then((r) => {
       const d = compactDetails(kind, r);
       detailsAll()[k] = d;
-      recsMem.set(k, (r.recommendations?.results || []).map((x) => tmdbTile(x, kind)).filter(Boolean));
+      setRecs(k, (r.recommendations?.results || []).map((x) => tmdbTile(x, kind)).filter(Boolean));
       saveDetailsSoon();
       return d;
     })
@@ -200,7 +229,7 @@ function loadDetails(kind, id, key) {
   return p;
 }
 
-/* Re-render whenever any details arrive. */
+/* Re-render whenever any details (or Explore lists) arrive. */
 function useDetailsVersion() {
   const [, setV] = useStateT(0);
   useEffectT(() => {
@@ -217,13 +246,16 @@ function useTitleDetails(kind, id, key) {
   const [error, setError] = useStateT("");
   useEffectT(() => {
     setError("");
-    if (!id || !key) return;
+    if (!id) return;
     const k = detailsKey(kind, id);
-    if (recsMem.has(k) && !detailsStale(cachedDetails(kind, id))) return;
-    loadDetails(kind, id, key).catch((e) => setError(e.message || "Couldn't load details"));
+    const undo = mountIn(detailsMounted, k, { kind, id });
+    if (key && !(recsAll().has(k) && !detailsStale(cachedDetails(kind, id)))) {
+      loadDetails(kind, id, key).catch((e) => setError(e.message || "Couldn't load details"));
+    }
+    return undo;
   }, [kind, id, key]);
   const k = id ? detailsKey(kind, id) : "";
-  return { d: cachedDetails(kind, id), recs: recsMem.get(k) || null, error, loading: detailsInflight.has(k) };
+  return { d: cachedDetails(kind, id), recs: recsAll().get(k) || null, error, loading: detailsInflight.has(k) };
 }
 
 /* usePrefetchDetails — fetch details for the titles in `list` that have
@@ -301,26 +333,101 @@ function nextEpisode(item, d) {
 }
 
 /* ============ Lists (Explore) ============
-   A TMDB list (trending, popular, …) as tiles. Kept in memory for half an
-   hour, so moving between tabs doesn't refetch. */
-const listMem = new Map();
+   A TMDB list (trending, popular, …) as tiles, kept on the device so
+   Explore opens straight away (and offline) with what it showed last.
+   Older than half an hour, a list still shows while a fresh one loads. */
+const LISTS_STORE = "tvt:lists:v1";
+const LIST_FRESH_MS = 30 * 60e3;
+const LIST_KEEP_MS = 14 * DAY_MS; // a list no screen has asked for since is dropped
+let listsMem = null;
+const listsInflight = new Map();
+const listsMounted = new Map(); // the lists on screen, for pull to refresh
+
+function listsAll() {
+  if (!listsMem) {
+    try { listsMem = JSON.parse(localStorage.getItem(LISTS_STORE) || "{}") || {}; } catch { listsMem = {}; }
+  }
+  return listsMem;
+}
+let listsSaveTimer = 0;
+function saveListsSoon() {
+  clearTimeout(listsSaveTimer);
+  listsSaveTimer = setTimeout(() => {
+    const all = listsAll();
+    for (const p of Object.keys(all)) if (Date.now() - all[p].at > LIST_KEEP_MS) delete all[p];
+    try { localStorage.setItem(LISTS_STORE, JSON.stringify(all)); } catch { try { localStorage.removeItem(LISTS_STORE); } catch {} }
+  }, 500);
+}
+
+/* Fetch (or join the fetch already under way for) a list. */
+function loadList(path, kind, key) {
+  if (listsInflight.has(path)) return listsInflight.get(path);
+  const p = tmdbGet(path, { language: TMDB_LANGUAGE, page: "1" }, key)
+    .then((data) => {
+      const results = (data.results || []).map((r) => tmdbTile(r, kind)).filter(Boolean);
+      listsAll()[path] = { at: Date.now(), kind, results };
+      saveListsSoon();
+      return results;
+    })
+    .finally(() => { listsInflight.delete(path); notifyDetails(); });
+  listsInflight.set(path, p);
+  return p;
+}
+
+/* Count a screen's use of an entry in one of the `mounted` registries;
+   returns the cleanup that uncounts it. */
+function mountIn(map, k, value) {
+  const cur = map.get(k);
+  map.set(k, { ...value, n: (cur?.n || 0) + 1 });
+  return () => {
+    const c = map.get(k);
+    if (!c || c.n <= 1) map.delete(k);
+    else map.set(k, { ...c, n: c.n - 1 });
+  };
+}
+
 function useTmdbList(path, kind, key) {
-  const cached = listMem.get(path);
-  const fresh = cached && Date.now() - cached.at < 30 * 60e3;
-  const [state, setState] = useStateT(() => (cached ? { results: cached.results, error: "" } : { results: null, error: "" }));
+  useDetailsVersion();
+  const [error, setError] = useStateT("");
   useEffectT(() => {
-    if (!key || fresh) return;
-    const ctl = new AbortController();
-    tmdbGet(path, { language: TMDB_LANGUAGE, page: "1" }, key, ctl.signal)
-      .then((data) => {
-        const results = (data.results || []).map((r) => tmdbTile(r, kind)).filter(Boolean);
-        listMem.set(path, { at: Date.now(), results });
-        setState({ results, error: "" });
-      })
-      .catch((e) => { if (e.name !== "AbortError") setState((s) => ({ ...s, error: e.message || "Couldn't load" })); });
-    return () => ctl.abort();
+    setError("");
+    const undo = mountIn(listsMounted, path, { kind });
+    const c = listsAll()[path];
+    if (key && !(c && Date.now() - c.at < LIST_FRESH_MS)) {
+      loadList(path, kind, key).catch((e) => setError(e.message || "Couldn't load"));
+    }
+    return undo;
   }, [path, key]);
-  return state;
+  return { results: listsAll()[path]?.results || null, error };
+}
+
+/* ============ Pull to refresh ============
+   Fetch again, now, the lists and titles on screen, plus `extra` library
+   titles (what you're watching, for Up Next), four at a time. Resolves
+   with how many came in; rejects with the first error if none did. */
+async function refreshTmdb(key, extra = []) {
+  if (!key) return 0;
+  detailsFailed.clear();
+  const jobs = [];
+  for (const [path, { kind }] of listsMounted) jobs.push(() => loadList(path, kind, key));
+  const titles = new Map();
+  for (const [k, { kind, id }] of detailsMounted) titles.set(k, { kind, id });
+  for (const i of extra) if (i.tmdbId) titles.set(detailsKey(i.kind, i.tmdbId), { kind: i.kind, id: i.tmdbId });
+  for (const { kind, id } of titles.values()) jobs.push(() => loadDetails(kind, id, key));
+  let done = 0, firstError = null;
+  const worker = async () => {
+    while (jobs.length) {
+      const job = jobs.shift();
+      try { await job(); done++; } catch (e) {
+        firstError = firstError || e;
+        // A bad key fails every request: stop rather than try them all.
+        if (/key/i.test(e.message || "")) jobs.length = 0;
+      }
+    }
+  };
+  await Promise.all([0, 1, 2, 3].map(worker));
+  if (firstError && !done) throw firstError;
+  return done;
 }
 
 /* useTmdbSearch — results for `query` while `enabled`, a beat after the
@@ -391,6 +498,6 @@ function PosterThumb({ path }) {
 
 Object.assign(window, {
   posterUrl, backdropUrl, fmtDate, fmtRuntime, fmtCount, tmdbTile, searchTitles, testTmdbKey,
-  cachedDetails, useTitleDetails, usePrefetchDetails, useTmdbList, useTmdbSearch,
+  cachedDetails, useTitleDetails, usePrefetchDetails, useTmdbList, useTmdbSearch, refreshTmdb, tmdbGet,
   episodesWatched, airedEpisodes, isFinished, nextEpisode, SearchResults, PosterThumb,
 });

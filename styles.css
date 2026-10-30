@@ -999,6 +999,15 @@ button:focus-visible {
 .tvt-strip {
   scrollbar-width: none;
 }
+/* Pull to refresh: the activity indicator turns a tick at a time. */
+.tvt-ptr-spin {
+  animation: tvtPtrSpin 0.8s steps(8) infinite;
+}
+@keyframes tvtPtrSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 /* Placeholders while a shelf loads. */
 .tvt-skel {
   background: var(--fill);
