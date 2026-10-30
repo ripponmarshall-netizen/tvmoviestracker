@@ -1,19 +1,26 @@
-/* app.jsx — data, screens, the add/edit sheet, settings and the tab bar */
+/* app.jsx — data, routing, the list screens, the add/edit sheet, settings
+   and the tab bar */
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
    changes incompatibly, bump the key (tvt:v2) and migrate in loadState. */
 const STORE_KEY = "tvt:v1";
 
-// The tabs, in order. A status is a tab: add one here and it gets a tab,
-// a screen and a place in the edit sheet.
+// Where a title is in your library. A status gets a list screen (Profile →
+// Library), status tiles on the title sheet and a place in the edit sheet.
 const STATUSES = [
   { v: "watching", l: "Watching", icon: PlayIcon, empty: "Nothing on the go. Start something from your watchlist, or add a title." },
   { v: "watchlist", l: "Watchlist", icon: BookmarkIcon, empty: "Save the shows and movies you want to get to." },
   { v: "watched", l: "Watched", icon: CheckCircleIcon, empty: "Finished titles land here, with your rating." },
+];
+// The tab bar, in order.
+const TABS = [
+  { v: "watching", l: "Watching", icon: PlayIcon },
+  { v: "explore", l: "Explore", icon: CompassIcon },
+  { v: "profile", l: "Profile", icon: PersonIcon },
 ];
 const KINDS = [
   { v: "tv", l: "Show" },
@@ -88,8 +95,9 @@ function loadState() {
   return {
     items: cleanList(s.items),
     theme: pick(s.theme, THEMES, "auto"),
-    tab: pick(s.tab, STATUSES, "watching"),
+    tab: pick(s.tab, TABS, "watching"),
     filter: pick(s.filter, FILTERS, "all"),
+    explore: pick(s.explore, FILTERS, "all"),
     tmdbKey: typeof s.tmdbKey === "string" ? s.tmdbKey : "",
   };
 }
@@ -100,19 +108,24 @@ function saveState(state) {
 }
 
 function progressLabel(item) {
-  if (item.kind !== "tv") return null;
+  // A finished show's progress says nothing ("Not started" would mislead).
+  if (item.kind !== "tv" || item.status === "watched") return null;
   if (item.season === 1 && item.episode === 0) return "Not started";
   return `S${item.season} · E${item.episode}`;
 }
 
 /* quickAction — the one-tap button on a row (or null for none). `patch`
-   is merged into the item; when it moves the item to another tab, the row
-   folds away and a toast offers Undo. Add new one-tap actions here. */
+   is merged into the item; when it moves the item to another list, the row
+   folds away and a toast offers Undo. Add new one-tap actions here. With
+   TMDB details, +1 rolls on to the next season and stops at what's aired. */
 function quickAction(item) {
   if (item.status === "watchlist") return { label: "Start", patch: { status: "watching" } };
-  if (item.status === "watching" && item.kind === "tv") return { label: "+1 ep", accent: true, patch: { episode: item.episode + 1 } };
-  if (item.status === "watching") return { label: "Done", patch: { status: "watched" } };
-  return null;
+  if (item.status !== "watching") return null;
+  if (item.kind !== "tv") return { label: "Done", patch: { status: "watched" } };
+  const d = cachedDetails("tv", item.tmdbId);
+  const n = nextEpisode(item, d);
+  if (n) return n.aired ? { label: "+1 ep", accent: true, patch: { season: n.season, episode: n.episode } } : null;
+  return isFinished(d) ? { label: "Done", patch: { status: "watched" } } : null;
 }
 
 /* ============ App ============ */
@@ -121,9 +134,13 @@ function App() {
   const [items, setItems] = useState(initial.items);
   const [theme, setTheme] = useState(initial.theme);
   const [tab, setTab] = useState(initial.tab);
+  const [list, setList] = useState(null); // a status whose list is open over the tab
   const [filter, setFilter] = useState(initial.filter);
+  const [explore, setExplore] = useState(initial.explore);
+  const [query, setQuery] = useState(""); // Explore's search
   const [tmdbKey, setTmdbKey] = useState(initial.tmdbKey);
-  const [editing, setEditing] = useState(null); // the item open in the sheet
+  const [detail, setDetail] = useState(null); // the title open in the title sheet
+  const [editing, setEditing] = useState(null); // the item open in the edit sheet
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The latest list, for timers (fold-away, Undo) and sync merges. Every
   // change goes through updateItems, which updates it at once rather than
@@ -143,7 +160,7 @@ function App() {
   // The app is on screen: hand the loading screen over to the header logo.
   useEffect(() => { window.tvtSplashDone?.(); }, []);
 
-  useEffect(() => { saveState({ items, theme, tab, filter, tmdbKey }); }, [items, theme, tab, filter, tmdbKey]);
+  useEffect(() => { saveState({ items, theme, tab, filter, explore, tmdbKey }); }, [items, theme, tab, filter, explore, tmdbKey]);
 
   useEffect(() => {
     const mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
@@ -161,13 +178,58 @@ function App() {
     }
   }, [theme]);
 
-  React.useLayoutEffect(() => { window.scrollTo(0, 0); }, [tab]);
+  React.useLayoutEffect(() => { window.scrollTo(0, 0); }, [tab, list]);
+  // Tapping the current tab goes back from a list, then scrolls to the top.
   const go = (t) => {
-    if (t === tab) { window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" }); return; }
+    if (t === tab) {
+      if (list) { setList(null); return; }
+      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      return;
+    }
+    setList(null);
     setTab(t);
   };
 
   const replace = (item) => updateItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
+  const findItem = (id) => itemsRef.current.find((i) => i.id === id);
+
+  const openItem = (item) => setDetail({ itemId: item.id, kind: item.kind, tmdbId: item.tmdbId, title: item.title, poster: item.poster, year: item.year });
+  const openTile = (tile) => setDetail(tile);
+
+  const patchItem = (id, patch) => {
+    const item = findItem(id);
+    if (item) replace(touch({ ...item, ...patch }));
+  };
+
+  const moveTo = (id, status) => {
+    const before = findItem(id);
+    if (!before || before.status === status) return;
+    replace(touch({ ...before, status }));
+    showToast(`Moved to ${statusLabel(status)}`, { action: { label: "Undo", onClick: () => replace(touch(before)) } });
+  };
+
+  // A title from TMDB (Explore, "More like this") into the library.
+  const addTitle = (tile, status) => {
+    const item = normaliseItem(touch({ ...blankItem(status), title: tile.title, kind: tile.kind, tmdbId: tile.tmdbId ?? null, poster: tile.poster, year: tile.year }));
+    if (!item) return;
+    updateItems((prev) => [item, ...prev]);
+    showToast(`Added to ${statusLabel(status)}`, { action: { label: "Undo", onClick: () => updateItems((prev) => prev.filter((i) => i.id !== item.id)) } });
+  };
+
+  // The tick on Up Next: the next episode watched, or a movie (or a show
+  // with nothing left to watch) moved to Watched.
+  const advance = (id) => {
+    const item = findItem(id);
+    if (!item) return;
+    const d = item.kind === "tv" ? cachedDetails("tv", item.tmdbId) : null;
+    const n = item.kind === "tv" ? nextEpisode(item, d) : null;
+    if (!n) { moveTo(id, "watched"); return; }
+    const after = touch({ ...item, season: n.season, episode: n.episode, status: "watching" });
+    replace(after);
+    if (isFinished(d) && !nextEpisode(after, d)) {
+      showToast(`That was the last episode of “${item.title}”`, { action: { label: "Mark Watched", onClick: () => moveTo(id, "watched") } });
+    }
+  };
 
   const saveItem = (draft) => {
     const exists = itemsRef.current.some((i) => i.id === draft.id);
@@ -207,33 +269,60 @@ function App() {
     showToast(message, { action: { label: "Undo", onClick: () => updateItems(() => prev.map(touch)) } });
   };
 
-  const counts = useMemo(() => {
-    const c = {};
-    for (const s of STATUSES) c[s.v] = 0;
-    for (const i of items) c[i.status]++;
-    return c;
-  }, [items]);
+  const counts = useMemo(() => ({ watching: items.filter((i) => i.status === "watching").length }), [items]);
 
   const isNew = editing && !items.some((i) => i.id === editing.id);
+  // The + button adds to the list on screen; on Watching, to Watching.
+  const addStatus = list || (tab === "watching" ? "watching" : "watchlist");
+  const openSettings = () => setSettingsOpen(true);
+
+  // Each screen is keyed, so it rises in afresh when you switch.
+  let screen;
+  if (list) {
+    screen = (
+      <ListView key={`list-${list}`} status={list} items={items} filter={filter} setFilter={setFilter}
+        onOpen={openItem} onQuick={applyQuick} onAdd={() => setEditing(blankItem(list))}
+        back={{ label: TABS.find((t) => t.v === tab)?.l, onClick: () => setList(null) }} />
+    );
+  } else if (tab === "explore") {
+    screen = (
+      <ExploreView key="explore" items={items} tmdbKey={tmdbKey} kind={explore} setKind={setExplore}
+        query={query} setQuery={setQuery} onOpen={openTile} onSettings={openSettings} />
+    );
+  } else if (tab === "profile") {
+    screen = <ProfileView key="profile" items={items} tmdbKey={tmdbKey} session={session} sync={sync} onOpenList={setList} onSettings={openSettings} />;
+  } else {
+    screen = (
+      <WatchingView key="watching" items={items} tmdbKey={tmdbKey} onOpenItem={openItem} onOpenTile={openTile}
+        onAdvance={advance} onSeeAll={setList} onExplore={() => go("explore")} />
+    );
+  }
 
   return (
     <div>
-      <Header onAdd={() => setEditing(blankItem(tab))} onSettings={() => setSettingsOpen(true)} />
+      <Header onAdd={() => setEditing(blankItem(addStatus))} onSettings={openSettings} />
 
-      {/* Keyed by tab, so each screen rises in afresh when you switch. */}
-      <ListView
-        key={tab}
-        status={tab}
-        items={items}
-        filter={filter}
-        setFilter={setFilter}
-        onOpen={setEditing}
-        onQuick={applyQuick}
-        onAdd={() => setEditing(blankItem(tab))}
-      />
+      {screen}
 
       <Taskbar tab={tab} onTab={go} counts={counts} />
 
+      {detail && (
+        <TitleSheet
+          target={detail}
+          items={items}
+          tmdbKey={tmdbKey}
+          onStatus={(t, status) => {
+            const item = findInLibrary(itemsRef.current, t);
+            if (item) moveTo(item.id, status);
+            else addTitle(t, status);
+          }}
+          onAdvance={advance}
+          onPatch={patchItem}
+          onEdit={setEditing}
+          onDelete={deleteItem}
+          onClose={() => setDetail(null)}
+        />
+      )}
       {editing && (
         <ItemSheet
           item={editing}
@@ -290,8 +379,10 @@ function Header({ onAdd, onSettings }) {
   );
 }
 
-/* ============ List screen ============ */
-function ListView({ status, items, filter, setFilter, onOpen, onQuick, onAdd }) {
+/* ============ List screen ============
+   One status's titles (Profile → Library, or See All), pushed over the
+   tab with a back button. */
+function ListView({ status, items, filter, setFilter, onOpen, onQuick, onAdd, back }) {
   const meta = STATUSES.find((s) => s.v === status);
   const inStatus = items.filter((i) => i.status === status);
   // Most recently touched first, but the order is fixed while you're on
@@ -309,11 +400,8 @@ function ListView({ status, items, filter, setFilter, onOpen, onQuick, onAdd }) 
   const quick = (item, q) => (q.patch.status && q.patch.status !== item.status ? foldAway(item.id) : onQuick(item.id));
 
   return (
-    <main className="tvt-view tvt-page" style={{ padding: "8px 16px calc(120px + var(--safe-bottom))" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, margin: "4px 4px 12px" }}>
-        <h2 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em" }}>{meta.l}</h2>
-        <span className="mono" style={{ fontSize: 13, color: "var(--ink-faint)" }}>{plural(shown.length, "title")}</span>
-      </div>
+    <main className="tvt-view tvt-push tvt-page" style={{ padding: "8px 16px calc(120px + var(--safe-bottom))" }}>
+      <ScreenTitle title={meta.l} detail={plural(shown.length, "title")} back={back} />
       <div style={{ marginBottom: 14 }}>
         <SegToggle full options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
       </div>
@@ -370,22 +458,26 @@ function ItemRow({ item, onOpen, onQuick }) {
   );
 }
 
+/* A hue (0–359) from a title, so its stand-in artwork keeps its colour. */
+function titleHue(title) {
+  let h = 0;
+  for (const ch of title.toLowerCase()) h = (h * 31 + ch.codePointAt(0)) % 360;
+  return h;
+}
+
 /* The TMDB poster, fading in over a stand-in (initials on a gradient whose
    hue comes from the title), which is all that shows when there's no
-   poster or it can't load (offline). The stripe is the kind's colour. */
-function Poster({ item, size = 46 }) {
-  const hue = useMemo(() => {
-    let h = 0;
-    for (const ch of item.title.toLowerCase()) h = (h * 31 + ch.codePointAt(0)) % 360;
-    return h;
-  }, [item.title]);
+   poster or it can't load (offline). The stripe is the kind's colour.
+   `item` is anything with a title, kind and poster (an item or a tile). */
+function Poster({ item, size = 46, ratio = 1.4, radius = 10, stripe = true }) {
+  const hue = useMemo(() => titleHue(item.title), [item.title]);
   const [failed, setFailed] = useState("");
-  const src = posterUrl(item.poster, size > 60 ? "w342" : "w185");
+  const src = posterUrl(item.poster, size > 150 ? "w500" : size > 60 ? "w342" : "w185");
   const words = item.title.replace(/^(the|a|an)\s+/i, "").split(/\s+/).filter(Boolean);
   const initials = words.slice(0, 2).map((w) => Array.from(w)[0]).join("").toUpperCase();
   return (
     <span aria-hidden style={{
-      width: size, height: Math.round(size * 1.4), borderRadius: 10, flexShrink: 0,
+      width: size, height: Math.round(size * ratio), borderRadius: radius, flexShrink: 0,
       position: "relative", overflow: "hidden",
       display: "flex", alignItems: "center", justifyContent: "center",
       background: `linear-gradient(160deg, oklch(64% 0.13 ${hue}), oklch(36% 0.09 ${hue + 40}))`,
@@ -397,7 +489,7 @@ function Poster({ item, size = 46 }) {
         <img key={src} src={src} alt="" loading="lazy" onLoad={(e) => { e.currentTarget.style.opacity = 1; }} onError={() => setFailed(src)}
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0, transition: "opacity 0.35s ease" }} />
       )}
-      <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 3, background: item.kind === "tv" ? "var(--tv)" : "var(--movie)" }} />
+      {stripe && <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 3, background: item.kind === "tv" ? "var(--tv)" : "var(--movie)" }} />}
     </span>
   );
 }
@@ -687,8 +779,8 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, session, sync, it
 
 /* ============ Tab bar ============ */
 function Taskbar({ tab, onTab, counts }) {
-  const activeIndex = STATUSES.findIndex((s) => s.v === tab);
-  const n = STATUSES.length;
+  const activeIndex = TABS.findIndex((s) => s.v === tab);
+  const n = TABS.length;
   return (
     <nav aria-label="Main" className="tvt-tabbar">
       <div className="tvt-dock" style={{ maxWidth: 360, margin: "0 auto", padding: "0 16px 12px", pointerEvents: "auto" }}>
@@ -714,7 +806,7 @@ function Taskbar({ tab, onTab, counts }) {
               borderRadius: 25, background: "var(--fill)",
             }} />
           )}
-          {STATUSES.map((t) => {
+          {TABS.map((t) => {
             const Icon = t.icon;
             const active = tab === t.v;
             const count = counts[t.v];
