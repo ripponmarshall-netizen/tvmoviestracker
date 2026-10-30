@@ -2,7 +2,7 @@
    and the tab bar */
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -42,6 +42,11 @@ const clampInt = (n, min, max) => Math.min(max, Math.max(min, Math.round(Number(
 const nowIso = () => new Date().toISOString();
 const statusLabel = (v) => STATUSES.find((s) => s.v === v)?.l || v;
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+/* Ratings run 0–5 in half stars; 0 is unrated. */
+const clampRating = (n) => Math.min(5, Math.max(0, Math.round((Number(n) || 0) * 2) / 2));
+const fmtRating = (r) => (r % 1 ? r.toFixed(1) : String(r));
+/* 3.5 as "★★★½", the way Letterboxd writes it. */
+const starText = (r) => "★".repeat(Math.floor(r)) + (r % 1 ? "½" : "");
 
 function newId() {
   return window.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -63,7 +68,7 @@ function normaliseItem(x) {
     // TV progress: the last episode watched (episode 0 = season not started).
     season: clampInt(x.season ?? 1, 1, 999),
     episode: clampInt(x.episode ?? 0, 0, 9999),
-    rating: clampInt(x.rating ?? 0, 0, 5),
+    rating: clampRating(x.rating),
     note: String(x.note ?? "").slice(0, 2000),
     // Filled in when the title is picked from TMDB search; empty otherwise.
     tmdbId: Number.isInteger(x.tmdbId) && x.tmdbId > 0 ? x.tmdbId : null,
@@ -157,6 +162,7 @@ function App() {
   const userId = session?.user?.id;
   const sync = useCloudSync(userId, items, itemsRef, updateItems);
   useProfileKey(userId, tmdbKey, setTmdbKey);
+  usePosterBackfill(items, tmdbKey, updateItems);
 
   // The app is on screen: hand the loading screen over to the header logo.
   useEffect(() => { window.tvtSplashDone?.(); }, []);
@@ -537,12 +543,15 @@ function KindChip({ kind }) {
 function Stars({ value, size = 12 }) {
   if (!value) return null;
   return (
-    <span role="img" aria-label={`${value} of 5 stars`} style={{ display: "inline-flex", gap: 1 }}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <span key={n} style={{ display: "inline-flex", color: n <= value ? "var(--star)" : "var(--ink-faint)", opacity: n <= value ? 1 : 0.4 }}>
-          <StarIcon size={size} filled={n <= value} />
-        </span>
-      ))}
+    <span role="img" aria-label={`${fmtRating(value)} of 5 stars`} style={{ display: "inline-flex", gap: 1 }}>
+      {[1, 2, 3, 4, 5].map((n) => {
+        const lit = n <= value, half = !lit && n - 0.5 <= value;
+        return (
+          <span key={n} style={{ display: "inline-flex", color: lit || half ? "var(--star)" : "var(--ink-faint)", opacity: lit || half ? 1 : 0.4 }}>
+            <StarIcon size={size} filled={lit} half={half} />
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -670,27 +679,87 @@ function Stepper({ label, value, min, max, onChange }) {
   );
 }
 
-/* Five stars: tap one to rate, tap the current rating again to clear.
-   The lit stars pop in a ripple each time the rating changes. */
+/* Five big stars across the width, in half steps: tap a star's left half
+   for a half star, its right half for a whole one, or slide along the
+   row. Tapping the rating you have clears it. A slider to assistive tech
+   (arrow keys step by a half). The lit stars pop in a ripple once the
+   rating is set. */
 function RatingInput({ value, onChange }) {
+  const rowRef = useRef(null);
+  const press = useRef(null);
+  const [preview, setPreview] = useState(null); // under the finger, until it lifts
+  const shown = preview ?? value;
+  // The half star a point along the row is over: 0.5 to 5.
+  const at = (clientX) => {
+    const r = rowRef.current.getBoundingClientRect();
+    const f = Math.min(0.9999, Math.max(0, (clientX - r.left) / r.width));
+    return (Math.floor(f * 10) + 1) / 2;
+  };
+  // A slide along the stars mustn't also pull the sheet down.
+  useEffect(() => {
+    const el = rowRef.current;
+    const stop = (e) => e.stopPropagation();
+    el.addEventListener("touchstart", stop, { passive: true });
+    return () => el.removeEventListener("touchstart", stop);
+  }, []);
+  const down = (e) => {
+    if (e.button > 0) return;
+    press.current = { id: e.pointerId, x: e.clientX, moved: false };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setPreview(at(e.clientX));
+  };
+  const move = (e) => {
+    const p = press.current;
+    if (!p || p.id !== e.pointerId) return;
+    if (Math.abs(e.clientX - p.x) > 6) p.moved = true;
+    setPreview(at(e.clientX));
+  };
+  const up = (e) => {
+    const p = press.current;
+    if (!p || p.id !== e.pointerId) return;
+    press.current = null;
+    setPreview(null);
+    const v = at(e.clientX);
+    onChange(!p.moved && v === value ? 0 : v);
+  };
+  // A vertical swipe that starts on the stars scrolls the page instead.
+  const cancel = () => { press.current = null; setPreview(null); };
+  const key = (e) => {
+    const step = { ArrowRight: 0.5, ArrowUp: 0.5, ArrowLeft: -0.5, ArrowDown: -0.5 }[e.key];
+    const v = step ? clampRating(value + step) : e.key === "End" ? 5 : ["Home", "Delete", "Backspace"].includes(e.key) ? 0 : null;
+    if (v == null) return;
+    e.preventDefault();
+    if (v !== value) onChange(v);
+  };
   return (
-    <div role="radiogroup" aria-label="Rating" style={{ display: "flex", gap: 2, marginLeft: -8 }}>
-      {[1, 2, 3, 4, 5].map((n) => {
-        const on = n <= value;
-        return (
-          <button key={n} type="button" role="radio" aria-checked={n === value} aria-label={plural(n, "star")}
-            className="tvt-star-btn" onClick={() => onChange(n === value ? 0 : n)} style={{
-              width: 44, height: 44, padding: 0, border: "none", background: "transparent", cursor: "pointer",
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              color: on ? "var(--star)" : "var(--ink-faint)",
-            }}>
-            <span key={on ? `on${value}` : "off"} className={on ? "tvt-check-pop" : undefined}
-              style={{ display: "inline-flex", animationDelay: `${(n - 1) * 40}ms`, animationFillMode: "backwards", opacity: on ? 1 : 0.5 }}>
-              <StarIcon size={26} filled={on} />
+    <div>
+      <div ref={rowRef} role="slider" tabIndex={0} aria-label="Rating" aria-valuemin={0} aria-valuemax={5} aria-valuenow={value}
+        aria-valuetext={value ? `${fmtRating(value)} of 5 stars` : "Not rated"}
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onKeyDown={key}
+        className="tvt-rating">
+        {[1, 2, 3, 4, 5].map((n) => {
+          const lit = n <= shown, half = !lit && n - 0.5 <= shown, on = lit || half;
+          return (
+            <span key={n} style={{ display: "flex", justifyContent: "center", color: on ? "var(--star)" : "var(--ink-faint)" }}>
+              <span key={on ? `on${shown}` : "off"} className={on && preview == null ? "tvt-check-pop" : undefined}
+                style={{ display: "inline-flex", animationDelay: `${(n - 1) * 40}ms`, animationFillMode: "backwards", opacity: on ? 1 : 0.45 }}>
+                <StarIcon size={42} filled={lit} half={half} />
+              </span>
             </span>
-          </button>
-        );
-      })}
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 36, marginTop: 8 }}>
+        {shown ? (
+          <span style={{ flex: 1, display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span key={shown} className="mono tvt-pop" style={{ fontSize: 22, fontWeight: 700 }}>{fmtRating(shown)}</span>
+            <span style={{ fontSize: 13.5, color: "var(--ink-dim)" }}>out of 5</span>
+          </span>
+        ) : (
+          <span style={{ flex: 1, fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.4 }}>Tap or slide to rate. A star's left side gives a half.</span>
+        )}
+        {value > 0 && <button type="button" onClick={() => onChange(0)} style={{ ...ghostBtn(), padding: "7px 14px", borderRadius: 999 }}>Clear</button>}
+      </div>
     </div>
   );
 }

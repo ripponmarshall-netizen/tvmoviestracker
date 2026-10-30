@@ -5,7 +5,7 @@
    column). Imports merge into the library, matched by TMDB id, else by
    title and year; nothing is removed. Titles that come in without a TMDB
    id are matched on TMDB afterwards, for posters, runtimes and Up Next. */
-const { useState: useStateI, useMemo: useMemoI, useRef: useRefI } = React;
+const { useState: useStateI, useEffect: useEffectI, useMemo: useMemoI, useRef: useRefI } = React;
 
 /* What a file holds, which decides the list its titles go to when it has
    no status column of its own. */
@@ -13,9 +13,14 @@ const CSV_ROLES = [
   { v: "ratings", l: "Ratings", hint: "Sets your ratings. New titles go to Watched." },
   { v: "library", l: "Library", hint: "Uses the file's Status column; otherwise Watchlist, or Watching with progress." },
   { v: "watched", l: "Watched", hint: "Into Watched. Shows with episode progress go to Watching." },
-  { v: "list", l: "List", hint: "Into your Watchlist." },
+  { v: "list", l: "List", hint: "Into your Watchlist. Shows with episode progress go to Watching." },
 ];
 const STATUS_RANK = { watchlist: 0, watching: 1, watched: 2 };
+// How the import sheet names the columns it found.
+const CSV_FIELD_NAMES = {
+  title: "title", kind: "type", year: "year", date: "release date", tmdb: "TMDB id", imdb: "IMDb id", url: "link",
+  rating: "rating", status: "status", season: "season", episode: "episode", note: "note", added: "date",
+};
 
 /* Header names, lower-case with only letters and digits, in order of
    preference: a show's name beats "title", which an episode export uses
@@ -23,16 +28,18 @@ const STATUS_RANK = { watchlist: 0, watching: 1, watched: 2 };
 const SHOW_TITLE_HEADS = ["showtitle", "showname", "tvshowname", "seriesname", "seriestitle", "series", "show"];
 const CSV_HEADS = {
   title: [...SHOW_TITLE_HEADS, "title", "name", "movietitle", "moviename", "movie", "film", "primarytitle", "originaltitle"],
-  kind: ["type", "titletype", "mediatype", "kind", "category", "contenttype", "format"],
+  kind: ["type", "titletype", "mediatype", "kind", "category", "contenttype", "format", "entitytype", "itemtype", "objecttype"],
   year: ["year", "releaseyear", "startyear", "firstairyear"],
   date: ["releasedate", "firstairdate", "released", "premiered", "releasedon"],
-  tmdb: ["tmdbid", "tmdb", "themoviedbid", "tmdbshowid", "tmdbmovieid"],
+  tmdb: ["tmdbid", "tmdb", "themoviedbid", "tmdbshowid", "tmdbmovieid", "idtmdb"],
   imdb: ["imdbid", "imdb", "const", "tconst", "imdbconst"],
   url: ["url", "link", "uri", "letterboxduri", "tmdburl", "imdburl"],
   rating: ["yourrating", "myrating", "userrating", "rating", "rating10", "score", "myscore", "stars"],
-  status: ["status", "watchstatus", "state", "list", "shelf"],
-  season: ["season", "seasonnumber", "seasonno", "seasonnum"],
-  episode: ["episode", "episodenumber", "episodeno", "episodenum"],
+  // "watchlist" last: some trackers name their status column after it.
+  status: ["status", "watchstatus", "mystatus", "userstatus", "liststatus", "trackingstatus", "state", "list", "shelf", "watchlist"],
+  season: ["season", "seasonnumber", "seasonno", "seasonnum", "seasonnr", "episodeseasonnumber", "lastseason", "lastseasonwatched", "currentseason"],
+  // The last episode watched, as a number or "S02E05".
+  episode: ["episode", "episodenumber", "episodeno", "episodenum", "episodenr", "lastepwatched", "lastepisodewatched", "lastwatchedepisode", "lastepisode", "currentepisode", "progress"],
   note: ["note", "notes", "mynotes", "review", "comment", "comments"],
   added: ["dateadded", "added", "addedat", "createdat", "created", "daterated", "ratedat", "watchedat", "watcheddate", "lastwatched", "lastwatchedat", "date"],
 };
@@ -85,14 +92,16 @@ function csvColumns(row) {
 function csvKind(v) {
   v = normHead(v);
   if (/movie|film|feature|short|video|documentary/.test(v)) return "movie"; // "TV Movie" too
-  if (/tv|show|series|episode|season|mini|anime/.test(v)) return "tv";
+  if (/tv|show|series|episode|season|mini|anime|^ova$|^ona$/.test(v)) return "tv";
   return null;
 }
+/* Your status for a title. Not "Continuing" or "Ended": those are a show's
+   airing status, which some exports put in a Status column. */
 function csvStatus(v) {
   v = normHead(v);
-  if (/^(watching|inprogress|currentlywatching|continuing|started|onhold|paused|rewatching)$/.test(v)) return "watching";
-  if (/^(watchlist|plantowatch|wanttowatch|planned|towatch|notstarted|later|queue|backlog|ptw|saved)$/.test(v)) return "watchlist";
-  if (/^(watched|completed|complete|finished|seen|done|ended)$/.test(v)) return "watched";
+  if (/^(watching|inprogress|currentlywatching|started|onhold|hold|paused|rewatching|uptodate|caughtup)$/.test(v)) return "watching";
+  if (/^(watchlist|plantowatch|wanttowatch|wanttosee|planned|towatch|notstarted|later|forlater|queue|backlog|ptw|saved|wishlist|unwatched|notwatched)$/.test(v)) return "watchlist";
+  if (/^(watched|completed|complete|finished|seen|done)$/.test(v)) return "watched";
   return null;
 }
 /* A date as ISO, or "" (Safari won't read "2024-01-31 20:15:00"). */
@@ -102,7 +111,7 @@ function csvDate(v) {
 }
 
 /* csvRecords — a file's rows as titles: { title, kind (or null when the
-   file doesn't say), tmdbId, imdbId, year, rating (0–5), status, season,
+   file doesn't say), tmdbId, imdbId, year, rating (0–5 in halves), status, season,
    episode, note, added }. Rows for the same title (a watch history has one
    per episode) are combined. Returns null when no row looks like a
    header. */
@@ -132,9 +141,9 @@ function csvRecords(rows) {
     if (!title || /game|podcast/.test(kindText) || (kindText.includes("episode") && !showTitles)) { skipped++; continue; }
     const url = at(r, "url");
     const tmdbUrl = url.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
-    const sxe = (at(r, "episode") + " " + at(r, "season")).match(/s(\d+)\s*e(\d+)/i);
-    const season = sxe ? toInt(sxe[1]) : toInt(at(r, "season"));
-    const episode = sxe ? toInt(sxe[2]) : toInt(at(r, "episode"));
+    const sxe = (at(r, "episode") + " " + at(r, "season")).match(/s(\d+)\s*e(\d+)|\b(\d+)x(\d+)\b/i);
+    const season = sxe ? toInt(sxe[1] || sxe[3]) : toInt(at(r, "season"));
+    const episode = sxe ? toInt(sxe[2] || sxe[4]) : toInt(at(r, "episode"));
     let kind = csvKind(kindText) || (tmdbUrl && tmdbUrl[1]) || null;
     if (!kind && (showTitles || episode > 0)) kind = "tv";
     if (!kind && (letterboxd || /letterboxd\.com|boxd\.it/.test(url))) kind = "movie";
@@ -152,16 +161,16 @@ function csvRecords(rows) {
     });
   }
 
-  // Ratings out of 10 (IMDb) or 100 become stars; Letterboxd's half stars
-  // round up.
+  // Ratings out of 10 (IMDb) or 100 become stars, to the nearest half;
+  // Letterboxd's half stars stay as they are.
   const top = Math.max(0, ...recs.map((x) => x.raw));
   const tenScale = heads[cols.rating] === "rating10" || (heads[cols.rating] === "yourrating" && cols.imdb != null);
   const scale = top > 10 ? 20 : tenScale || top > 5 ? 2 : 1;
   for (const x of recs) {
-    x.rating = x.raw > 0 ? Math.min(5, Math.max(1, Math.round(x.raw / scale))) : 0;
+    x.rating = x.raw > 0 ? clampRating(Math.max(0.5, x.raw / scale)) : 0;
     delete x.raw;
   }
-  return { recs: combineRecs(recs), skipped };
+  return { recs: combineRecs(recs), skipped, fields: Object.keys(cols) };
 }
 
 const laterEp = (a, b) => (b.season > a.season || (b.season === a.season && b.episode > a.episode) ? b : a);
@@ -228,15 +237,16 @@ function guessRole(name) {
 
 /* A record's status from its file's role, when the file doesn't set one.
    A guessed status is `weak`: it never moves a title already in the
-   library, and a set one from another file beats it. */
+   library, and a set one from another file beats it. A show with
+   episodes watched is at least on the go, whatever the file holds. */
 function withRole(x, role) {
   if (x.status) return { ...x, weak: false };
-  const progress = x.kind !== "movie" && x.episode > 0;
+  const progress = x.kind !== "movie" && (x.episode > 0 || x.season > 1);
   if (role === "watched") return { ...x, status: progress ? "watching" : "watched", weak: false };
   if (role === "ratings") return { ...x, status: "watched", weak: true };
-  if (role === "list") return { ...x, status: "watchlist", weak: true };
   return { ...x, status: progress ? "watching" : "watchlist", weak: true };
 }
+const hasProgress = (i) => i.kind === "tv" && (i.episode > 0 || i.season > 1);
 
 /* planImport — the library after importing `files`: matched titles updated
    (a set status only moves a title further along, never back; ratings and
@@ -269,6 +279,9 @@ function planImport(files, items) {
     if (x.status && !x.weak && STATUS_RANK[x.status] > STATUS_RANK[next.status]) next.status = x.status;
     if (x.rating) next.rating = x.rating;
     if (next.kind === "tv" && x.season && laterEp(next, x) === x) { next.season = x.season; next.episode = x.episode; }
+    // Episodes watched mean it's started, even if a guessed status said
+    // Watchlist (this is how a re-import puts shows back on the go).
+    if (next.status === "watchlist" && hasProgress(next)) next.status = "watching";
     if (!next.tmdbId && x.tmdbId && x.kind === next.kind) next.tmdbId = x.tmdbId;
     if (!next.year && x.year) next.year = x.year;
     if (!next.note && x.note) next.note = x.note;
@@ -294,9 +307,13 @@ function planImport(files, items) {
     const x = source.get(i.id);
     return { id: i.id, title: i.title, year: i.year, tmdbId: i.tmdbId, kind: x && !x.kind ? null : i.kind, imdbId: x?.imdbId || "" };
   });
+  // Where titles land: new ones, and ones moving to another list.
+  const before = new Map(items.map((i) => [i.id, i.status]));
+  const into = { watching: 0, watched: 0, watchlist: 0 };
+  for (const i of [...added, ...changes.values()]) if (before.get(i.id) !== i.status) into[i.status]++;
   return {
     items: [...added, ...items.map((i) => changes.get(i.id) || i)],
-    added: added.length, updated: changes.size, same: recs.length - added.length - changes.size, toLink,
+    added: added.length, updated: changes.size, same: recs.length - added.length - changes.size, toLink, into,
   };
 }
 
@@ -336,12 +353,34 @@ async function matchOnTmdb(t, key) {
   return best ? tilePatch(best, t) : null;
 }
 
+/* A dropped connection or TMDB's rate limit is worth another go, after a
+   pause; a bad key isn't. */
+async function tmdbRetry(fn, tries = 3) {
+  for (let n = 1; ; n++) {
+    try { return await fn(); } catch (e) {
+      if (n >= tries || !/connection|error (429|5\d\d)/i.test(e?.message || "")) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * n));
+    }
+  }
+}
+
+// Titles matched (or being matched) this visit, so the poster backfill
+// doesn't fetch them twice. Ones cut off by a lost connection or a bad
+// key wait in linkFailed until the app wakes or the key changes.
+const linkTried = new Set();
+const linkFailed = new Set();
+function releaseFailedLinks() {
+  linkFailed.forEach((id) => linkTried.delete(id));
+  linkFailed.clear();
+}
+
 /* linkWithTmdb — match imported titles on TMDB, four at a time. Matches
    reach onBatch (a Map of id → patch) every moment rather than one by one,
    so a big import doesn't re-render and save per title. Resolves with how
    many matched. */
 async function linkWithTmdb(targets, key, onBatch) {
   const queue = [...targets];
+  targets.forEach((t) => linkTried.add(t.id));
   let matched = 0, pending = new Map(), timer = 0;
   const flush = () => {
     clearTimeout(timer);
@@ -355,21 +394,63 @@ async function linkWithTmdb(targets, key, onBatch) {
     while (queue.length) {
       const t = queue.shift();
       try {
-        const patch = await matchOnTmdb(t, key);
+        const patch = await tmdbRetry(() => matchOnTmdb(t, key));
         if (!patch) continue;
         matched++;
         pending.set(t.id, patch);
         if (!timer) timer = setTimeout(flush, 800);
       } catch (e) {
-        // A bad key or no connection fails every request: stop rather than
-        // try them all.
-        if (/key|connection/i.test(e.message || "")) queue.length = 0;
+        // A bad key, or no connection even after retrying, fails every
+        // request: stop rather than try them all.
+        if (/key|connection/i.test(e.message || "")) [t, ...queue.splice(0)].forEach((q) => linkFailed.add(q.id));
       }
     }
   };
   await Promise.all([0, 1, 2, 3].map(worker));
   flush();
   return matched;
+}
+
+/* usePosterBackfill — library titles with a TMDB id but no poster get it
+   (and their details), in the background. That finishes a match an import
+   started but didn't get through (the app was closed, or the phone slept),
+   and fills in titles added offline. Runs a moment after the app opens,
+   and again when it comes back to the foreground or online. The edit time
+   is left alone, so the titles don't jump to the top of the recent lists;
+   each device fills in its own. */
+function usePosterBackfill(items, key, updateItems) {
+  const [wake, setWake] = useStateI(0);
+  useEffectI(() => {
+    const on = () => {
+      if (document.visibilityState !== "visible") return;
+      releaseFailedLinks();
+      setWake((w) => w + 1);
+    };
+    document.addEventListener("visibilitychange", on);
+    window.addEventListener("online", on);
+    return () => {
+      document.removeEventListener("visibilitychange", on);
+      window.removeEventListener("online", on);
+    };
+  }, []);
+  useEffectI(() => {
+    if (!linkFailed.size) return;
+    releaseFailedLinks();
+    setWake((w) => w + 1);
+  }, [key]);
+  const want = key ? items.filter((i) => i.tmdbId && !i.poster && !linkTried.has(i.id)) : [];
+  const sig = want.map((i) => i.id).join(",");
+  useEffectI(() => {
+    if (!want.length || navigator.onLine === false) return;
+    const t = setTimeout(() => {
+      const targets = want.map((i) => ({ id: i.id, title: i.title, year: i.year, tmdbId: i.tmdbId, kind: i.kind, imdbId: "" }));
+      linkWithTmdb(targets, key, (batch) => updateItems((prev) => prev.map((i) => {
+        const p = batch.get(i.id);
+        return p?.poster && !i.poster ? normaliseItem({ ...i, poster: p.poster, year: i.year || p.year }) || i : i;
+      })));
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [sig, key, wake]);
 }
 
 /* ============ The import sheet ============ */
@@ -399,6 +480,7 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
   };
   const count = plan ? plan.added + plan.updated : 0;
   const unlinked = plan ? plan.toLink.length : 0;
+  const into = plan && Object.entries(plan.into).filter(([, n]) => n).map(([s, n]) => `${statusLabel(s)} ${n}`).join(", ");
 
   return (
     <ModalFrame sheet dismiss={{ ref, closing, close }} label="Import CSV files">
@@ -416,6 +498,13 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
                 <div style={{ fontSize: 12.5, color: f.error ? "var(--danger)" : "var(--ink-dim)", marginTop: 2 }}>
                   {f.error || [plural(f.recs.length, "title"), f.skipped && `${f.skipped} row${f.skipped === 1 ? "" : "s"} skipped`].filter(Boolean).join(" · ")}
                 </div>
+                {/* So a file whose status or episode column wasn't
+                    recognised shows it before anything is imported. */}
+                {!f.error && f.fields && (
+                  <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 2, lineHeight: 1.35 }}>
+                    Reads {f.fields.map((k) => CSV_FIELD_NAMES[k]).join(", ")}
+                  </div>
+                )}
               </div>
               <button type="button" onClick={() => drop(f.id)} aria-label={`Remove ${f.name}`} style={{ ...iconBtn(36), color: "var(--ink-dim)" }}><XIcon size={11} /></button>
             </div>
@@ -437,6 +526,7 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
           <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>{plan.added}</span> new ·{" "}
           <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>{plan.updated}</span> updated ·{" "}
           <span className="mono">{plan.same}</span> already up to date.
+          {into && <> Into {into}.</>}
           {unlinked > 0 && (tmdbKey
             ? ` ${plural(unlinked, "title")} will then be matched on TMDB for posters and episode details.`
             : ` Add a TMDB key in Settings first if you want posters for the ${plural(unlinked, "title")} without one.`)}
@@ -452,4 +542,4 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
   );
 }
 
-Object.assign(window, { parseCsv, csvRecords, planImport, linkWithTmdb, CsvImportSheet });
+Object.assign(window, { parseCsv, csvRecords, planImport, linkWithTmdb, usePosterBackfill, CsvImportSheet });
