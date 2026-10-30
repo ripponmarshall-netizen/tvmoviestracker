@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>TV &amp; Movie Tracker</title>
+    <meta name="theme-color" content="#000000" id="theme-color-meta" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="TV Tracker" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <!-- iOS only takes a PNG here; with an SVG, Add to Home Screen falls
+         back to a snapshot of the page. -->
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script>
+      // Apply the saved theme before first paint, so light-theme users
+      // don't get a flash of dark.
+      (function () {
+        try {
+          var t =
+            (JSON.parse(localStorage.getItem("tvt:v1") || "{}") || {}).theme ||
+            "auto";
+          if (t === "auto") {
+            t =
+              window.matchMedia &&
+              matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          }
+          document.documentElement.setAttribute("data-theme", t);
+          var m = document.getElementById("theme-color-meta");
+          if (m)
+            m.setAttribute("content", t === "light" ? "#f2f2f7" : "#000000");
+        } catch (e) {}
+      })();
+      // Splash hand-off. The logo drops in (pure CSS) while the scripts
+      // load. Once the app has mounted (app.jsx calls tvtSplashDone) the
+      // logo and title leap up into the header (crouch, arc, overshoot,
+      // settle) while the page drops in beneath them. Screen entrances
+      // wait (tvt-booting) so they play as the splash clears; tvt-intro
+      // makes that first entrance fall from above rather than rise.
+      (function () {
+        var start = Date.now();
+        var reduce =
+          window.matchMedia &&
+          matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var root = document.documentElement;
+        root.classList.add("tvt-booting", "tvt-intro");
+        var sub = function (text) {
+          var el = document.getElementById("tvt-splash-sub");
+          if (el) el.textContent = text;
+        };
+        var slow = setTimeout(function () {
+          sub("Still loading… check your connection");
+        }, 12000);
+        // No terminal on a phone: if a script fails to compile or crashes
+        // on start, say so on the splash instead of loading forever.
+        window.addEventListener("error", function (e) {
+          if (!document.getElementById("tvt-splash")) return;
+          clearTimeout(slow);
+          sub("Couldn't start: " + ((e && e.message) || "script error"));
+        });
+        var finish = function (el) {
+          root.classList.remove("tvt-booting", "tvt-handoff");
+          if (el) el.remove();
+          // The intro entrance has played; later screens rise as usual.
+          setTimeout(function () {
+            root.classList.remove("tvt-intro");
+          }, 1400);
+        };
+        // A damped spring released from rest, as a function of t in [0, 1]:
+        // it settles by t = 1 and is nudged to land exactly on 1. z is the
+        // damping ratio: 0.62 overshoots ~8% (--ease-snappy), 0.78 ~2%.
+        var springFn = function (z) {
+          var wn = Math.log(500) / z;
+          var wd = wn * Math.sqrt(1 - z * z);
+          var k = z / Math.sqrt(1 - z * z);
+          var raw = function (t) {
+            return (
+              1 -
+              Math.exp(-z * wn * t) * (Math.cos(wd * t) + k * Math.sin(wd * t))
+            );
+          };
+          var miss = 1 - raw(1);
+          return function (t) {
+            return t <= 0 ? 0 : t >= 1 ? 1 : raw(t) + miss * t * t * t;
+          };
+        };
+        var smooth = function (a, b, t) {
+          var u = Math.min(1, Math.max(0, (t - a) / (b - a)));
+          return u * u * (3 - 2 * u);
+        };
+        var rect = function (n) {
+          var r = n && n.getBoundingClientRect();
+          return r && r.width > 0 && r.height > 0 ? r : null;
+        };
+        // Plain fade, for reduced motion or when there's nothing to fly to.
+        var fadeOut = function (el) {
+          el.classList.add("is-leaving");
+          root.classList.remove("tvt-booting");
+          setTimeout(function () {
+            finish(el);
+          }, 460);
+        };
+
+        var flyHome = function (el) {
+          var brand = el.querySelector(".tvt-brand");
+          var title = el.querySelector(".tvt-splash-title");
+          var toLogo = document.querySelector('[data-splash-target="logo"]');
+          var toTitle = document.querySelector('[data-splash-target="title"]');
+          var a = rect(brand);
+          var b = rect(toLogo);
+          if (reduce || !brand.animate || !a || !b) return fadeOut(el);
+          var ms = 860;
+          var s = b.width / a.width;
+          var dx = b.left + b.width / 2 - (a.left + a.width / 2);
+          var dy = b.top + b.height / 2 - (a.top + a.height / 2);
+          var svg = brand.querySelector("svg");
+          var radius =
+            parseFloat(getComputedStyle(toLogo).borderTopLeftRadius) || 0;
+          // Worked out frame by frame, because across and up need
+          // different timing: each axis is its own damped spring. Across
+          // overshoots the header logo a touch and comes back; up leads
+          // (it rises before it moves across, like a jump).
+          var springX = springFn(0.62);
+          var springY = springFn(0.78);
+          var STEPS = 48;
+          brand.style.animation = "none";
+          brand.style.opacity = "1";
+          brand.style.transformOrigin = "50% 50%";
+          root.classList.add("tvt-handoff");
+          el.classList.add("is-flying");
+          el.setAttribute("aria-hidden", "true");
+          // A jump: it crouches with its base planted (anticipation),
+          // stretches as it springs off, tilts into the turn and lands.
+          var CROUCH = 0.14;
+          var logoFrames = [];
+          for (var i = 0; i <= STEPS; i++) {
+            var t = i / STEPS;
+            var tau = Math.max(0, (t - CROUCH) / (1 - CROUCH));
+            var g = 1 + (s - 1) * springY(Math.min(1, tau * 1.1));
+            var sq =
+              t < CROUCH
+                ? -0.1 * Math.sin((Math.PI / 2) * (t / CROUCH))
+                : -0.1 +
+                  0.18 * smooth(CROUCH, CROUCH + 0.1, t) -
+                  0.08 * smooth(CROUCH + 0.1, 0.5, t);
+            var plant =
+              Math.max(0, -sq) *
+              (a.height / 2) *
+              (1 - smooth(CROUCH, CROUCH + 0.08, t));
+            var tilt = Math.sin(Math.PI * smooth(CROUCH, 0.7, t));
+            logoFrames.push({
+              transform:
+                "translate(" +
+                (dx * springX(tau)).toFixed(2) +
+                "px, " +
+                (dy * springY(Math.min(1, tau * 1.3)) + plant).toFixed(2) +
+                "px) rotate(" +
+                (-12 * tilt * tilt).toFixed(2) +
+                "deg) scale(" +
+                (g * (1 - sq * 0.8)).toFixed(4) +
+                ", " +
+                (g * (1 + sq)).toFixed(4) +
+                ")",
+            });
+          }
+          var flight = brand.animate(logoFrames, {
+            duration: ms,
+            easing: "linear",
+            fill: "forwards",
+          });
+          if (svg) {
+            svg.animate(
+              [
+                { borderRadius: getComputedStyle(svg).borderTopLeftRadius },
+                { borderRadius: radius / s + "px", boxShadow: "none" },
+              ],
+              {
+                duration: ms,
+                easing: "cubic-bezier(0.45, 0, 0.15, 1)",
+                fill: "forwards",
+              },
+            );
+          }
+          var c = rect(title);
+          var d = rect(toTitle);
+          if (c && d) {
+            // The header title is left-aligned and may be smaller, so pin
+            // the left edge. It follows a beat behind the logo, like a tail.
+            var ts =
+              parseFloat(getComputedStyle(toTitle).fontSize) /
+              parseFloat(getComputedStyle(title).fontSize);
+            var tx = d.left - c.left;
+            var ty = d.top + d.height / 2 - (c.top + c.height / 2);
+            var titleFrames = [];
+            for (var j = 0; j <= STEPS; j++) {
+              var u = Math.max(0, (j / STEPS - 0.12) / 0.88);
+              var qx = springX(u);
+              titleFrames.push({
+                transform:
+                  "translate(" +
+                  (tx * qx).toFixed(2) +
+                  "px, " +
+                  (ty * springY(Math.pow(u, 1.3))).toFixed(2) +
+                  "px) scale(" +
+                  (1 + (ts - 1) * qx).toFixed(4) +
+                  ")",
+              });
+            }
+            title.animate(titleFrames, {
+              duration: ms - 90,
+              delay: 80,
+              easing: "linear",
+              fill: "forwards",
+            });
+          } else {
+            title.style.opacity = "0";
+          }
+          // Let the page start falling in once the logo is well on its way.
+          setTimeout(function () {
+            root.classList.remove("tvt-booting");
+          }, ms * 0.6);
+          // Swap to the real header logo on the flight's last frame; the
+          // timer is the backstop.
+          var landed = false;
+          var onLand = function () {
+            if (landed) return;
+            landed = true;
+            finish(el);
+            toLogo.classList.add("tvt-landed");
+          };
+          flight.onfinish = onLand;
+          setTimeout(onLand, ms + 250);
+        };
+
+        window.tvtSplashDone = function () {
+          window.tvtSplashDone = function () {};
+          clearTimeout(slow);
+          var el = document.getElementById("tvt-splash");
+          if (!el) return finish(null);
+          el.setAttribute("aria-busy", "false");
+          // Let the logo land and settle before it leaps, even on a fast
+          // (cached) load.
+          var wait = reduce ? 0 : Math.max(0, 1300 - (Date.now() - start));
+          setTimeout(function () {
+            flyHome(el);
+          }, wait);
+        };
+      })();
+    </script>
+  </head>
+  <body>
+    <!-- Loading screen: an overlay above the app (not inside #root), so it
+         can hand over to the header logo after React mounts. -->
+    <div id="tvt-splash" class="tvt-splash" role="status" aria-busy="true">
+      <div class="tvt-sky" aria-hidden="true">
+        <span class="tvt-moon"></span>
+        <i class="tvt-star" style="top: 12%; left: 14%"></i>
+        <i
+          class="tvt-star is-big"
+          style="top: 22%; left: 32%; animation-delay: -0.9s"
+        ></i>
+        <i
+          class="tvt-star"
+          style="top: 9%; left: 55%; animation-delay: -1.7s"
+        ></i>
+        <i
+          class="tvt-star"
+          style="top: 30%; left: 66%; animation-delay: -0.4s"
+        ></i>
+        <i
+          class="tvt-star is-big"
+          style="top: 14%; left: 86%; animation-delay: -2.1s"
+        ></i>
+        <i
+          class="tvt-star"
+          style="top: 34%; left: 9%; animation-delay: -1.2s"
+        ></i>
+        <i
+          class="tvt-star"
+          style="top: 27%; left: 46%; animation-delay: -2.4s"
+        ></i>
+        <i
+          class="tvt-star"
+          style="top: 6%; left: 75%; animation-delay: -0.6s"
+        ></i>
+      </div>
+      <!-- The app icon (icon.svg), drawn in part by part. -->
+      <div class="tvt-brand" aria-hidden="true">
+        <span class="tvt-brand-glow"></span>
+        <span class="tvt-brand-wave"></span>
+        <span class="tvt-dust tvt-dust-l"></span>
+        <span class="tvt-dust tvt-dust-r"></span>
+        <svg viewBox="0 0 192 192" width="96" height="96">
+          <rect width="192" height="192" rx="42" fill="#0b0b0c" />
+          <path
+            class="tvt-brand-ant"
+            d="M72 38 L96 62 L120 38"
+            stroke="#f4f4f5"
+            stroke-width="6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            fill="none"
+          />
+          <rect
+            class="tvt-brand-screen"
+            x="34"
+            y="62"
+            width="124"
+            height="92"
+            rx="20"
+            fill="none"
+            stroke="#f4f4f5"
+            stroke-width="6"
+          />
+          <path
+            class="tvt-brand-play"
+            d="M86 88 L86 128 L119 108 Z"
+            fill="#e0a43c"
+            stroke="#e0a43c"
+            stroke-width="6"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </div>
+      <div class="tvt-splash-title">
+        <span class="sr-only">TV &amp; Movie Tracker</span
+        ><span aria-hidden="true" class="tvt-letters"
+          ><span style="--d: 0">T</span><span style="--d: 1">V</span
+          ><span style="--d: 2"> </span><span style="--d: 3">&amp;</span
+          ><span style="--d: 4"> </span><span style="--d: 5">M</span
+          ><span style="--d: 6">o</span><span style="--d: 7">v</span
+          ><span style="--d: 8">i</span><span style="--d: 9">e</span
+          ><span style="--d: 10"> </span><span style="--d: 11">T</span
+          ><span style="--d: 12">r</span><span style="--d: 13">a</span
+          ><span style="--d: 14">c</span><span style="--d: 15">k</span
+          ><span style="--d: 16">e</span><span style="--d: 17">r</span></span
+        >
+      </div>
+      <div class="tvt-splash-sub" id="tvt-splash-sub">
+        Loading<span class="tvt-dots" aria-hidden="true"
+          ><i></i><i></i><i></i
+        ></span>
+      </div>
+    </div>
+    <div id="root"></div>
+
+    <script
+      src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+      integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+      integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+      integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+      crossorigin="anonymous"
+    ></script>
+    <!-- Add a new .jsx file here (before app.jsx) and to ASSETS in sw.js. -->
+    <script type="text/babel" src="components.jsx"></script>
+    <script type="text/babel" src="app.jsx"></script>
+
+    <script>
+      if (
+        "serviceWorker" in navigator &&
+        location.protocol !== "blob:" &&
+        location.protocol !== "file:"
+      ) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("sw.js").catch(function () {});
+        });
+      }
+    </script>
+  </body>
+</html>
