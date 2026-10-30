@@ -1,0 +1,1031 @@
+/* TV & Movie Tracker — base styles (theme tokens, motion, chrome).
+   Component-level styling is inline in the React files. The tokens and
+   springs are the Night Shift Calculator's, so the two apps feel alike. */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  /* iOS system colours: grouped backgrounds (black page, raised cards),
+     label greys and the system tints. */
+  --bg: #000000;
+  --bg-1: #1c1c1e;
+  --bg-2: #2c2c2e;
+  --bg-3: #3a3a3c;
+  --line: #38383a;
+  --line-soft: #2c2c2e;
+  --ink: #f5f5f7;
+  --ink-dim: #aeaeb2;
+  --ink-faint: #98989d;
+  --accent: #ff9f0a;
+  --accent-ink: #000000;
+  /* Kinds: shows blue, movies purple. */
+  --tv: #0a84ff;
+  --movie: #bf5af2;
+  --danger: #ff453a;
+  --star: #ffd60a;
+  --ok: #30d158;
+  --fill: rgba(118, 118, 128, 0.24);
+  --seg-pill: #636366;
+  --card-edge: rgba(255, 255, 255, 0.05);
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.7);
+  --surface-translucent: rgba(30, 30, 32, 0.8);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Motion: damped springs. Each curve is a mass on a spring released from
+     rest, sampled into a CSS linear() easing, so things overshoot, swing
+     back and settle. The duration sets the stiffness; the damping ratio ζ
+     sets the shape. Browsers without linear() get a cubic-bezier.
+     - bouncy (ζ 0.42, ~23% overshoot): pops, ticks, press release
+     - snappy (ζ 0.62, ~8%): sliding pills, cards rising in, dialogs
+     - soft (ζ 0.78, ~2%): big moves (a sheet sliding up the screen)
+     - wobbly (ζ 0.3, ~37%): one-off flourishes (the logo landing) */
+  --ease-bouncy: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-snappy: cubic-bezier(0.32, 1.25, 0.5, 1);
+  --ease-soft: cubic-bezier(0.22, 1.08, 0.36, 1);
+  --ease-wobbly: cubic-bezier(0.3, 1.9, 0.45, 0.85);
+  /* Press feedback: buttons give under the finger and spring back. Inline
+     transitions list var(--press) so they keep it. */
+  --press: scale 0.34s var(--ease-bouncy);
+}
+/* Also on [data-theme]: the app sets the theme on <body> too, and the dark
+   block above would otherwise re-declare the fallbacks there. */
+@supports (transition-timing-function: linear(0, 1)) {
+  :root,
+  [data-theme] {
+    --ease-bouncy: linear(
+      0,
+      0.055,
+      0.194,
+      0.383,
+      0.588,
+      0.783,
+      0.952,
+      1.083,
+      1.172,
+      1.22,
+      1.233,
+      1.219,
+      1.185,
+      1.141,
+      1.093,
+      1.047,
+      1.009,
+      0.979,
+      0.959,
+      0.948,
+      0.946,
+      0.949,
+      0.957,
+      0.968,
+      0.979,
+      0.99,
+      0.999,
+      1.005,
+      1.01,
+      1.012,
+      1.013,
+      1.012,
+      1.01,
+      1.007,
+      1.005,
+      1.002,
+      1
+    );
+    --ease-snappy: linear(
+      0,
+      0.044,
+      0.151,
+      0.292,
+      0.445,
+      0.595,
+      0.728,
+      0.841,
+      0.93,
+      0.996,
+      1.041,
+      1.068,
+      1.081,
+      1.083,
+      1.078,
+      1.068,
+      1.056,
+      1.043,
+      1.031,
+      1.02,
+      1.011,
+      1.004,
+      0.999,
+      0.996,
+      0.994,
+      0.993,
+      0.993,
+      0.994,
+      1
+    );
+    --ease-soft: linear(
+      0,
+      0.046,
+      0.156,
+      0.293,
+      0.435,
+      0.568,
+      0.684,
+      0.78,
+      0.856,
+      0.913,
+      0.955,
+      0.984,
+      1.002,
+      1.013,
+      1.018,
+      1.02,
+      1.019,
+      1.017,
+      1.014,
+      1.012,
+      1.009,
+      1.007,
+      1
+    );
+    --ease-wobbly: linear(
+      0,
+      0.071,
+      0.252,
+      0.498,
+      0.759,
+      0.999,
+      1.188,
+      1.312,
+      1.368,
+      1.362,
+      1.308,
+      1.224,
+      1.127,
+      1.033,
+      0.955,
+      0.899,
+      0.868,
+      0.862,
+      0.876,
+      0.904,
+      0.939,
+      0.975,
+      1.006,
+      1.031,
+      1.046,
+      1.051,
+      1.049,
+      1.04,
+      1.028,
+      1.015,
+      1.002,
+      0.992,
+      0.985,
+      0.981,
+      0.981,
+      0.984,
+      0.988,
+      0.993,
+      0.998,
+      1.002,
+      1.005,
+      1.007,
+      1.007,
+      1.007,
+      1
+    );
+  }
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f2f2f7;
+  --bg-1: #ffffff;
+  --bg-2: #f2f2f7;
+  --bg-3: #e5e5ea;
+  --line: #d1d1d6;
+  --line-soft: #e5e5ea;
+  --ink: #1d1d1f;
+  --ink-dim: #6e6e73;
+  --ink-faint: #76767b;
+  /* The system tints, darkened so text in them reads 4.5:1 on white. */
+  --accent: #b84f00;
+  --accent-ink: #ffffff;
+  --tv: #0071e3;
+  --movie: #8944ab;
+  --danger: #d70015;
+  --star: #a35f00;
+  --ok: #248a3d;
+  --fill: rgba(118, 118, 128, 0.12);
+  --seg-pill: #ffffff;
+  --card-edge: transparent;
+  --glass-edge: rgba(0, 0, 0, 0.06);
+  --shadow: 0 16px 40px -20px rgba(0, 0, 0, 0.18);
+  --surface-translucent: rgba(255, 255, 255, 0.8);
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+/* No rubber-band at the ends of the page (set on the root, or the tab bar
+   can still be dragged past the ends and spring back). */
+html {
+  overscroll-behavior: none;
+}
+/* San Francisco on Apple devices; Geist (loaded in index.html) elsewhere. */
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Geist", system-ui,
+    sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+  color: inherit;
+}
+#root {
+  min-height: 100vh;
+}
+/* Tabular digits, so counters don't jitter as they change. */
+.mono {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-dim);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* ----- Loading screen (index.html) -----
+   A night sky while the scripts load. The app icon drops in under gravity
+   and bounces to rest, its screen draws, the antenna springs up and the
+   play button pops; the title's letters spring up one after another. Once
+   the app has mounted (tvtSplashDone) the logo and title leap into the
+   header while the page drops in beneath them. */
+.tvt-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  transition:
+    opacity 0.45s ease,
+    visibility 0s linear 0.45s;
+}
+/* The backdrop is its own layer, so clearing it while the logo flies is a
+   GPU blend, not a repaint of the whole screen every frame. */
+.tvt-splash::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg);
+  transition: opacity 0.5s ease;
+}
+.tvt-splash.is-flying {
+  pointer-events: none;
+}
+.tvt-splash.is-flying::before {
+  opacity: 0;
+}
+.tvt-splash.is-leaving {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* Night sky: an accent glow on the horizon, a moon and twinkling stars.
+   Light theme keeps only the glow. */
+.tvt-sky {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+  background: radial-gradient(
+    ellipse 70% 40% at 50% 58%,
+    color-mix(in oklab, var(--accent) 10%, transparent),
+    transparent 70%
+  );
+}
+.tvt-splash.is-flying .tvt-sky {
+  opacity: 0;
+}
+.tvt-star {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #f5f3ee;
+  opacity: 0;
+  animation: tvtTwinkle 2.6s ease-in-out infinite;
+}
+.tvt-star.is-big {
+  width: 3px;
+  height: 3px;
+  box-shadow: 0 0 6px 1px rgba(245, 243, 238, 0.5);
+}
+.tvt-moon {
+  position: absolute;
+  top: 19%;
+  right: 18%;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  box-shadow:
+    inset -7px 3px 0 0 #f1e6c8,
+    0 0 24px 2px rgba(241, 230, 200, 0.12);
+  transform: rotate(-20deg);
+  animation: tvtFadeIn 1.2s ease-out 0.2s backwards;
+}
+[data-theme="light"] .tvt-star,
+[data-theme="light"] .tvt-moon {
+  display: none;
+}
+@keyframes tvtTwinkle {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+}
+/* The logo falls onto its spot: gravity on the way down (ease-in), squash
+   on impact, each bounce lower and quicker than the last. */
+.tvt-brand {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 10px;
+  transform-origin: 50% 100%;
+  animation: tvtLogoDrop 0.9s 0.1s both;
+}
+.tvt-brand svg {
+  position: relative;
+  display: block;
+  border-radius: 21px;
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.65);
+}
+.tvt-brand-glow {
+  position: absolute;
+  inset: -28px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--accent) 38%, transparent),
+    transparent 68%
+  );
+  opacity: 0;
+  animation: tvtGlow 1.1s ease-out 0.47s forwards;
+}
+/* Ripple and dust kicked up where the logo hits. */
+.tvt-brand-wave {
+  position: absolute;
+  inset: -6px;
+  border-radius: 28px;
+  border: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+  opacity: 0;
+  animation: tvtWave 0.7s ease-out 0.47s forwards;
+}
+.tvt-dust {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  opacity: 0;
+}
+.tvt-dust-l {
+  animation: tvtDustL 0.6s ease-out 0.47s forwards;
+}
+.tvt-dust-r {
+  animation: tvtDustR 0.6s ease-out 0.47s forwards;
+}
+.tvt-brand-screen {
+  stroke-dasharray: 398;
+  stroke-dashoffset: 398;
+  animation: tvtDraw 0.6s cubic-bezier(0.65, 0, 0.35, 1) 0.45s forwards;
+}
+/* The antenna draws in and springs up from the top of the set. */
+.tvt-brand-ant {
+  stroke-dasharray: 68;
+  stroke-dashoffset: 68;
+  transform-box: view-box;
+  transform-origin: 96px 62px;
+  animation:
+    tvtDraw 0.3s ease-out 0.6s forwards,
+    tvtAntenna 0.9s var(--ease-wobbly) 0.6s backwards;
+}
+.tvt-brand-play {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0);
+  animation: tvtDotIn 0.7s var(--ease-wobbly) 0.85s forwards;
+}
+.tvt-splash.is-flying .tvt-brand-glow {
+  animation: tvtGlowOut 0.3s ease-out forwards;
+}
+.tvt-splash-sub {
+  font-size: 13px;
+  color: var(--ink-faint);
+  transition: opacity 0.3s ease;
+}
+.tvt-splash.is-flying .tvt-splash-sub {
+  opacity: 0;
+}
+/* The header's own logo and title stay hidden until the splash copies land
+   on them, so the swap is invisible. */
+.tvt-booting [data-splash-target],
+.tvt-handoff [data-splash-target] {
+  visibility: hidden;
+}
+/* The header logo takes the landing: a squash, then it springs back. */
+.tvt-landed {
+  animation: tvtBoing 0.75s;
+}
+@keyframes tvtLogoDrop {
+  0% {
+    opacity: 0;
+    transform: translateY(-170px) scale(0.92, 1.1);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 0.6);
+  }
+  12% {
+    opacity: 1;
+  }
+  41% {
+    transform: translateY(0) scale(1.2, 0.78);
+    animation-timing-function: cubic-bezier(0.1, 0.6, 0.4, 1);
+  }
+  58% {
+    opacity: 1;
+    transform: translateY(-30px) scale(0.96, 1.05);
+    animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4);
+  }
+  74% {
+    transform: translateY(0) scale(1.08, 0.92);
+    animation-timing-function: cubic-bezier(0.1, 0.6, 0.4, 1);
+  }
+  84% {
+    transform: translateY(-7px) scale(0.99, 1.01);
+    animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4);
+  }
+  93% {
+    transform: translateY(0) scale(1.02, 0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes tvtWave {
+  from {
+    opacity: 0.6;
+    transform: scale(0.9, 0.7);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.9, 1.5);
+  }
+}
+@keyframes tvtDustL {
+  from {
+    opacity: 0.45;
+    transform: translate(-20px, 0) scale(0.5);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-72px, -12px) scale(1.8);
+  }
+}
+@keyframes tvtDustR {
+  from {
+    opacity: 0.45;
+    transform: translate(20px, 0) scale(0.5);
+  }
+  to {
+    opacity: 0;
+    transform: translate(72px, -12px) scale(1.8);
+  }
+}
+@keyframes tvtAntenna {
+  from {
+    transform: scaleY(0.2);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes tvtGlow {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+}
+@keyframes tvtGlowOut {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@keyframes tvtDotIn {
+  to {
+    transform: scale(1);
+  }
+}
+/* Matches the header title, which it turns into. */
+.tvt-splash-title {
+  position: relative;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  transform-origin: left center;
+}
+.tvt-letters > span {
+  display: inline-block;
+  white-space: pre;
+  animation: tvtLetterIn 0.8s var(--ease-bouncy) backwards;
+  animation-delay: calc(var(--d) * 26ms + 160ms);
+}
+@keyframes tvtLetterIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) rotate(10deg) scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* "Loading" with three dots hopping in turn, each under gravity. */
+.tvt-dots {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 4px;
+}
+.tvt-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: tvtHopDot 1s infinite;
+}
+.tvt-dots i:nth-child(2) {
+  animation-delay: 0.14s;
+}
+.tvt-dots i:nth-child(3) {
+  animation-delay: 0.28s;
+}
+@keyframes tvtHopDot {
+  0%,
+  60%,
+  100% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.2, 0.6, 0.4, 1);
+  }
+  30% {
+    transform: translateY(-5px);
+    animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4);
+  }
+}
+/* While the splash is up, screen entrances wait, so the cards come in as
+   it lifts. On that first entrance (.tvt-intro) they fall into place from
+   above, slower and more staggered, as if dropping out of the header. */
+.tvt-booting #root * {
+  animation-play-state: paused !important;
+}
+.tvt-intro {
+  --rise-from: -30px;
+  --rise-dur: 0.85s;
+  --rise-step: 0.07s;
+}
+
+/* ----- shared motion ----- */
+@keyframes tvtFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes tvtFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+/* A sheet slides up from below the screen edge and settles with a small
+   bounce; its opacity has its own quick fade (the spring would overshoot). */
+@keyframes tvtSheetIn {
+  from {
+    transform: translateY(calc(100% + 120px));
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes tvtSheetFade {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes tvtSheetOut {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+@keyframes tvtCenterIn {
+  from {
+    transform: translateY(14px) scale(0.88);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes tvtCenterOut {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+}
+@keyframes tvtToastIn {
+  from {
+    transform: translateY(26px) scale(0.86);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes tvtToastOut {
+  to {
+    transform: translateY(8px) scale(0.96);
+    opacity: 0;
+  }
+}
+/* Entrances use fill-mode "backwards" (never "both"): a transform left on
+   a screen after it lands would become the containing block for any
+   fixed-position element inside it. */
+@keyframes tvtRise {
+  from {
+    transform: translateY(var(--rise-from, 22px));
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes tvtPopIn {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+/* Pressed in, then released: the spring carries it past full size. */
+@keyframes tvtCheckPop {
+  from {
+    transform: scale(0.55);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+/* Squash and stretch: a quick squash, then the spring lets go. */
+@keyframes tvtBoing {
+  0% {
+    transform: scale(1);
+    animation-timing-function: ease-out;
+  }
+  22% {
+    transform: scale(1.2, 0.8);
+    animation-timing-function: var(--ease-wobbly);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes tvtDraw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Modals: a dimmed backdrop (no blur: re-blurring the screen every frame
+   of the fade stutters on mid-range phones) and one card style. */
+.tvt-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
+  animation: tvtFadeIn 0.18s ease-out;
+}
+.tvt-backdrop.is-bottom {
+  align-items: flex-end;
+  padding: calc(16px + var(--safe-top)) 10px calc(10px + var(--safe-bottom));
+}
+.tvt-backdrop.is-closing {
+  animation: tvtFadeOut 0.18s ease-in forwards;
+}
+.tvt-modal {
+  width: 100%;
+  background: var(--bg-1);
+  border: 1px solid var(--card-edge);
+  border-radius: 22px;
+  padding: 18px;
+  outline: none;
+  box-shadow: var(--shadow);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tvt-modal.tvt-center {
+  animation: tvtCenterIn 0.5s var(--ease-bouncy);
+}
+.tvt-modal.tvt-center.is-closing {
+  animation: tvtCenterOut 0.16s ease-in forwards;
+}
+/* Rounder than a dialog, like an iOS sheet. */
+.tvt-modal.tvt-sheet {
+  border-radius: 28px;
+  animation:
+    tvtSheetIn 0.62s var(--ease-soft),
+    tvtSheetFade 0.2s ease-out;
+}
+.tvt-modal.tvt-sheet.is-closing {
+  animation: tvtSheetOut 0.18s ease-in forwards;
+}
+/* Pull a sheet down by its top to close it (useSheetDrag). Once flung it
+   leaves on its own flight, so the exit keyframes stand aside. */
+.tvt-grabber {
+  display: block;
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  margin: -8px auto 10px;
+  background: var(--ink-faint);
+  opacity: 0.45;
+}
+.tvt-modal.is-flung.is-closing,
+.tvt-backdrop.is-flung.is-closing {
+  animation: none;
+}
+.tvt-toast-wrap {
+  bottom: calc(100px + var(--safe-bottom));
+}
+.tvt-toast {
+  animation: tvtToastIn 0.6s var(--ease-bouncy);
+}
+.tvt-toast.is-leaving {
+  animation: tvtToastOut 0.2s ease-in forwards;
+}
+
+/* Screens: each block rises in on a spring, a beat after the one above. */
+.tvt-view > * {
+  animation: tvtRise var(--rise-dur, 0.7s) var(--ease-snappy) backwards;
+}
+.tvt-view > :nth-child(2) {
+  animation-delay: var(--rise-step, 0.05s);
+}
+.tvt-view > :nth-child(n + 3) {
+  animation-delay: calc(var(--rise-step, 0.05s) * 2);
+}
+.tvt-page {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+/* App chrome. The header only fades (no movement), so the splash can
+   measure where its logo will land while the header is still hidden. It
+   is solid, not frosted: it runs up under the Dynamic Island, where a
+   blur smears whatever scrolls beneath. Its hairline shows once scrolled. */
+.tvt-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--bg);
+  border-bottom: 1px solid transparent;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  animation: tvtFadeIn 0.45s ease-out backwards;
+}
+.tvt-header.is-scrolled {
+  border-bottom-color: var(--line-soft);
+  box-shadow: 0 10px 24px -22px rgba(0, 0, 0, 0.9);
+}
+/* Fixed on its own compositing layer, so iOS doesn't repaint it a frame
+   behind the page during momentum scrolling. */
+.tvt-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  padding-bottom: var(--safe-bottom);
+  pointer-events: none;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+.tvt-dock {
+  animation: tvtDockIn 0.8s var(--ease-bouncy) 0.18s backwards;
+}
+@keyframes tvtDockIn {
+  from {
+    transform: translateY(70px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* Small pops: a number that changed, a star set, the tab just picked. */
+.tvt-pop {
+  display: inline-block;
+  animation: tvtPopIn 0.5s var(--ease-bouncy) backwards;
+}
+.tvt-check-pop {
+  animation: tvtCheckPop 0.55s var(--ease-bouncy);
+}
+.tvt-tab-pop {
+  display: inline-flex;
+  animation: tvtBoing 0.7s backwards;
+}
+
+/* Sliding selection: the pill swings past the option it's heading for and
+   settles back onto it. */
+.tvt-seg-pill {
+  transition:
+    transform 0.55s var(--ease-snappy),
+    width 0.55s var(--ease-snappy),
+    height 0.55s var(--ease-snappy);
+}
+.tvt-tab-pill {
+  transition: transform 0.65s var(--ease-snappy);
+}
+
+/* Folding content fades as it folds, and slides down a touch as it opens.
+   An open fold carries no transform (it would trap fixed dialogs). */
+.tvt-collapse {
+  transition: grid-template-rows 0.42s var(--ease-snappy);
+}
+.tvt-collapse > div {
+  transition:
+    opacity 0.22s ease,
+    transform 0.42s var(--ease-snappy);
+}
+.tvt-collapse:not(.is-open) > div {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* List rows rise in one after another, and fold shut when they leave. */
+.tvt-row {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.18s ease-in;
+}
+.tvt-row.is-leaving {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.tvt-row > div {
+  min-height: 0;
+  min-width: 0;
+}
+.tvt-row.is-leaving > div {
+  overflow: hidden;
+}
+.tvt-row-in {
+  animation: tvtRise 0.65s var(--ease-snappy) backwards;
+}
+
+/* Press feedback: everything tappable gives under the finger and springs
+   back. The scale property (not transform), so it never fights an
+   entrance animation or an inline transform. */
+button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: var(--press);
+}
+button:not(:disabled):active {
+  scale: 0.96;
+  transition-duration: 0.12s;
+}
+button[role="tab"]:active,
+.tvt-star-btn:active {
+  scale: 0.9;
+}
+/* A row as wide as the screen would lurch at the usual press. */
+.tvt-wide-btn:not(:disabled):active {
+  scale: 0.985;
+}
+
+/* Respect the OS "reduce motion" setting across the whole app. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .tvt-brand-screen,
+  .tvt-brand-ant {
+    stroke-dashoffset: 0;
+  }
+  .tvt-brand-play {
+    transform: none;
+  }
+  .tvt-dust,
+  .tvt-brand-wave {
+    display: none;
+  }
+  button:not(:disabled):active {
+    scale: none;
+  }
+}
