@@ -831,6 +831,99 @@ button:focus-visible {
 .tvt-modal.tvt-sheet.is-closing {
   animation: tvtSheetOut 0.18s ease-in forwards;
 }
+/* The title sheet: artwork runs to the edges (the sheet's rounded corners
+   clip it) and the grabber floats over it. */
+.tvt-modal.tvt-flush {
+  position: relative;
+  padding: 0;
+}
+.tvt-flush > .tvt-grabber {
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  z-index: 4;
+  margin: 0 0 0 -18px;
+  background: #fff;
+  opacity: 0.7;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+/* The title sheet's top: close and back stay put as it scrolls, and once
+   the big title has gone a frosted bar with the title fades in behind
+   them (zero height, so it sits over the artwork rather than above it). */
+.tvt-sheet-top {
+  position: sticky;
+  top: 0;
+  height: 0;
+  z-index: 3;
+}
+.tvt-sheet-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 56px;
+  padding: 0 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--surface-translucent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--line-soft);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.tvt-sheet-top.is-barred .tvt-sheet-bar {
+  opacity: 1;
+}
+.tvt-sheet-top.is-barred .tvt-glass-btn {
+  background: var(--fill);
+  color: var(--ink);
+}
+/* Round frosted buttons over artwork (close, back). They only blur what's
+   under a small circle, so they don't stutter like a full-screen blur. */
+.tvt-glass-btn {
+  position: absolute;
+  top: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.38);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  backdrop-filter: blur(12px) saturate(160%);
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    var(--press);
+}
+/* The big poster settles in as the sheet arrives. */
+.tvt-detail-poster {
+  display: inline-flex;
+  animation: tvtPosterIn 0.75s var(--ease-snappy) 0.08s backwards;
+}
+@keyframes tvtPosterIn {
+  from {
+    transform: translateY(18px) scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
 /* Pull a sheet down by its top to close it (useSheetDrag). Once flung it
    leaves on its own flight, so the exit keyframes stand aside. */
 .tvt-grabber {
@@ -869,6 +962,79 @@ button:focus-visible {
 .tvt-page {
   max-width: 640px;
   margin: 0 auto;
+}
+/* A list pushed over a tab slides in from the right, as in iOS. */
+.tvt-view.tvt-push > * {
+  animation-name: tvtPushIn;
+}
+@keyframes tvtPushIn {
+  from {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* Shelves: a row of cards that scrolls sideways, edge to edge of the
+   screen (past the page padding), snapping card by card. */
+.tvt-shelf {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  margin: 0 -16px;
+  padding: 2px 16px 6px;
+  scroll-snap-type: x mandatory;
+  scroll-padding: 0 16px;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.tvt-shelf::-webkit-scrollbar,
+.tvt-strip::-webkit-scrollbar {
+  display: none;
+}
+.tvt-strip {
+  scrollbar-width: none;
+}
+/* Placeholders while a shelf loads. */
+.tvt-skel {
+  background: var(--fill);
+  animation: tvtPulse 1.4s ease-in-out infinite;
+}
+@keyframes tvtPulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.tvt-clamp-2,
+.tvt-clamp-4 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tvt-clamp-2 {
+  -webkit-line-clamp: 2;
+}
+.tvt-clamp-4 {
+  -webkit-line-clamp: 4;
+}
+/* Search fields draw their own clear button, and show focus with a quiet
+   ring rather than the accent outline. */
+.tvt-search {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tvt-search:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.tvt-search::-webkit-search-cancel-button,
+.tvt-search::-webkit-search-decoration {
+  -webkit-appearance: none;
+  display: none;
 }
 
 /* App chrome. The header only fades (no movement), so the splash can

@@ -1,5 +1,6 @@
 /* components.jsx — shared primitives: cards, buttons, segmented control,
-   sheets and dialogs, toasts, list-row motion, icons. Ported from the
+   screen and section titles, sheets and dialogs, toasts, list-row motion,
+   icons. Ported from the
    Night Shift Calculator so the two apps look and move the same. */
 const { useState: useStateC, useEffect: useEffectC, useRef: useRefC } = React;
 
@@ -273,10 +274,62 @@ function ConfirmDialog({ title, body, confirmLabel, danger, onDone }) {
   );
 }
 
+/* ScreenTitle — a screen's large title (as iOS draws them), with an
+   optional back button above it and a detail (a count) beside it. */
+function ScreenTitle({ title, detail, back }) {
+  return (
+    <div style={{ margin: "2px 4px 14px" }}>
+      {back && (
+        <button type="button" onClick={back.onClick} style={{
+          display: "inline-flex", alignItems: "center", gap: 2, margin: "0 0 2px -6px", padding: "6px 8px 6px 2px",
+          background: "none", border: "none", color: "var(--accent)", fontSize: 16, cursor: "pointer",
+        }}><ChevronIcon dir="left" size={18} />{back.label}</button>
+      )}
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: "-0.025em" }}>{title}</h2>
+        {detail != null && <span className="mono" style={{ fontSize: 13, color: "var(--ink-faint)" }}>{detail}</span>}
+      </div>
+    </div>
+  );
+}
+
+/* SectionHeader — a section's bold title, with an optional small line
+   above it (eyebrow), a detail beside it, or a "See All" style action. */
+function SectionHeader({ title, eyebrow, detail, action }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, margin: "0 4px 10px" }}>
+      <div style={{ minWidth: 0 }}>
+        {eyebrow && <div style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 1 }}>{eyebrow}</div>}
+        <h3 style={{ margin: 0, fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</h3>
+      </div>
+      {detail != null && <span className="mono" style={{ fontSize: 13, color: "var(--ink-faint)", flexShrink: 0, paddingBottom: 3 }}>{detail}</span>}
+      {action && (
+        <button type="button" onClick={action.onClick} style={{
+          flexShrink: 0, background: "none", border: "none", padding: "6px 0 3px 12px",
+          color: "var(--accent)", fontSize: 15, cursor: "pointer",
+        }}>{action.label}</button>
+      )}
+    </div>
+  );
+}
+
+/* A thin rounded bar, filled to `value` (0–1). */
+function ProgressBar({ value, color = "var(--accent)", height = 4, style }) {
+  const v = Math.max(0, Math.min(1, value || 0));
+  return (
+    <span role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(v * 100)} style={{
+      display: "block", height, borderRadius: height, background: "var(--fill)", overflow: "hidden", ...style,
+    }}>
+      <span style={{ display: "block", height: "100%", width: `${v * 100}%`, background: color, borderRadius: height, transition: "width 0.6s var(--ease-snappy)" }} />
+    </span>
+  );
+}
+
 /* ModalFrame — the dimmed backdrop and card every modal shares. Pass the
    useModalDismiss() result as `dismiss`. sheet: a bottom sheet you can pull
-   down to close; otherwise a centred dialog. Both scroll inside when tall. */
-function ModalFrame({ dismiss, sheet, zIndex = 70, maxWidth = 520, role = "dialog", label, children }) {
+   down to close; otherwise a centred dialog. Both scroll inside when tall.
+   flush: no padding, so artwork can run to the sheet's edges. */
+function ModalFrame({ dismiss, sheet, flush, zIndex = 70, maxWidth = 520, role = "dialog", label, children }) {
   const { ref, closing, close } = dismiss;
   const backdropRef = useRefC(null);
   const flung = useSheetDrag(sheet ? ref : null, backdropRef, close);
@@ -292,7 +345,7 @@ function ModalFrame({ dismiss, sheet, zIndex = 70, maxWidth = 520, role = "dialo
       onClick={(e) => { if (e.target === e.currentTarget && downOnBackdrop.current) close(); }}
       className={"tvt-backdrop" + (sheet ? " is-bottom" : "") + c} style={{ zIndex }}>
       <div ref={ref} tabIndex={-1} onClick={(e) => e.stopPropagation()} role={role} aria-modal="true" aria-label={label}
-        className={"tvt-modal " + (sheet ? "tvt-sheet" : "tvt-center") + c} style={{ maxWidth }}>
+        className={"tvt-modal " + (sheet ? "tvt-sheet" : "tvt-center") + (flush ? " tvt-flush" : "") + c} style={{ maxWidth }}>
         {sheet && <span className="tvt-grabber" aria-hidden />}
         {children}
       </div>
@@ -553,11 +606,28 @@ function StarIcon({ size = 14, filled }) {
     </svg>
   );
 }
+function CompassIcon({ size }) {
+  return <Svg size={size}><circle cx="12" cy="12" r="9" /><path d="M15.6 8.4l-2.1 5.1-5.1 2.1 2.1-5.1z" /></Svg>;
+}
+function PersonIcon({ size }) {
+  return <Svg size={size}><circle cx="12" cy="8.5" r="3.6" /><path d="M5 19.6c1.3-3.3 3.9-4.9 7-4.9s5.7 1.6 7 4.9" /></Svg>;
+}
+function SearchIcon({ size = 17 }) {
+  return <Svg size={size} sw={2}><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4" /></Svg>;
+}
+function CheckIcon({ size = 18 }) {
+  return <Svg size={size} sw={2.4}><path d="M5 12.5l4.5 4.5L19 7.5" /></Svg>;
+}
+function ChevronIcon({ size = 14, dir = "right" }) {
+  return <Svg size={size} sw={2.2}><path d={dir === "left" ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} /></Svg>;
+}
 
 Object.assign(window, {
   Card, SegToggle, iconBtn, primaryBtn, ghostBtn, accentBtn, fieldStyle,
   prefersReducedMotion, useFoldAway, AnimatedRow, Collapse,
   showToast, ToastHost, askConfirm, ConfirmHost,
+  ScreenTitle, SectionHeader, ProgressBar,
   ModalFrame, ModalHead, springTo, useModalDismiss, downloadBlob,
   XIcon, PlusIcon, MinusIcon, GearIcon, PlayIcon, BookmarkIcon, CheckCircleIcon, StarIcon,
+  CompassIcon, PersonIcon, SearchIcon, CheckIcon, ChevronIcon,
 });
