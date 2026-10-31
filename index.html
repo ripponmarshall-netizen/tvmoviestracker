@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <title>pree-it</title>
+    <title>Nostalgiaa</title>
     <meta name="theme-color" content="#000000" id="theme-color-meta" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -14,7 +14,7 @@
       name="apple-mobile-web-app-status-bar-style"
       content="black-translucent"
     />
-    <meta name="apple-mobile-web-app-title" content="pree-it" />
+    <meta name="apple-mobile-web-app-title" content="Nostalgiaa" />
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" type="image/svg+xml" href="icon.svg" />
     <!-- iOS only takes a PNG here; with an SVG, Add to Home Screen falls
@@ -48,13 +48,14 @@
             m.setAttribute("content", t === "light" ? "#f2f2f7" : "#000000");
         } catch (e) {}
       })();
-      // Splash hand-off. The film rolls up the screen and the logo pops in
-      // (pure CSS) while the scripts load. Once the app has mounted
-      // (app.jsx calls tvtSplashDone) the film whooshes up and off the top,
-      // and the logo and name glide up into the header while the page
-      // rises in behind them. Screen entrances wait (tvt-booting) so they
-      // play as the splash clears; tvt-intro makes that first entrance
-      // rise further and slower, following the film.
+      // Splash hand-off. The film rolls up the screen and the logo and
+      // name fade in (pure CSS) while the scripts load. Once the app has
+      // mounted (app.jsx calls tvtSplashDone) the film whooshes off the
+      // top, the logo and name dissolve, and the backdrop fades away to
+      // show the app rising in beneath it: one continuous cross-fade, with
+      // nothing measured or swapped, so nothing can pop. Screen entrances
+      // wait (tvt-booting) so they play as the splash clears; tvt-intro
+      // makes that first entrance a slower, softer fade.
       (function () {
         var start = Date.now();
         var reduce =
@@ -62,6 +63,20 @@
           matchMedia("(prefers-reduced-motion: reduce)").matches;
         var root = document.documentElement;
         root.classList.add("tvt-booting", "tvt-intro");
+        // The name waits for its font, so it never shows in a fallback
+        // face and then jumps when Geist arrives.
+        var fontsReady = false;
+        var onFonts = function () {
+          if (fontsReady) return;
+          fontsReady = true;
+          root.classList.add("tvt-fonts");
+        };
+        try {
+          document.fonts.load('700 34px "Geist"').then(onFonts, onFonts);
+        } catch (e) {
+          onFonts();
+        }
+        setTimeout(onFonts, 1500);
         var sub = function (text) {
           var el = document.getElementById("tvt-splash-sub");
           if (el) el.textContent = text;
@@ -77,142 +92,30 @@
           sub("Couldn't start: " + ((e && e.message) || "script error"));
         });
         var finish = function (el) {
-          root.classList.remove("tvt-booting", "tvt-handoff");
+          root.classList.remove("tvt-booting");
           if (el) el.remove();
           // The intro entrance has played; later screens rise as usual.
           setTimeout(function () {
             root.classList.remove("tvt-intro");
           }, 1400);
         };
-        var rect = function (n) {
-          var r = n && n.getBoundingClientRect();
-          return r && r.width > 0 && r.height > 0 ? r : null;
-        };
-        // Plain fade, for reduced motion or when there's nothing to fly to.
-        var fadeOut = function (el) {
+        var leave = function (el) {
           el.classList.add("is-leaving");
-          root.classList.remove("tvt-booting");
-          setTimeout(function () {
-            finish(el);
-          }, 460);
-        };
-
-        var flyHome = function (el) {
-          var brand = el.querySelector(".tvt-brand");
-          var title = el.querySelector(".tvt-splash-title");
-          var toLogo = document.querySelector('[data-splash-target="logo"]');
-          var toTitle = document.querySelector('[data-splash-target="title"]');
-          var a = rect(brand);
-          var b = rect(toLogo);
-          if (reduce || !brand.animate || !a || !b) return fadeOut(el);
-          var ms = 900;
-          var s = b.width / a.width;
-          var dx = b.left + b.width / 2 - (a.left + a.width / 2);
-          var dy = b.top + b.height / 2 - (a.top + a.height / 2);
-          var svg = brand.querySelector("svg");
-          var radius =
-            parseFloat(getComputedStyle(toLogo).borderTopLeftRadius) || 0;
-          brand.style.animation = "none";
-          root.classList.add("tvt-handoff");
-          // The film leaves and the backdrop clears (styles.css).
-          el.classList.add("is-flying");
           el.setAttribute("aria-hidden", "true");
-          // The logo is swept up with the film, tilting with it, then
-          // breaks away and glides across onto the header logo, landing
-          // with a touch of overshoot.
-          var flight = brand.animate(
-            [
-              { transform: "none", easing: "cubic-bezier(0.5, 0, 0.75, 0.4)" },
-              {
-                offset: 0.4,
-                transform:
-                  "translate(" +
-                  (dx * 0.12).toFixed(1) +
-                  "px, " +
-                  (dy * 0.5).toFixed(1) +
-                  "px) rotate(-9deg) scale(" +
-                  (1 + (s - 1) * 0.45).toFixed(3) +
-                  ")",
-                easing: "cubic-bezier(0.2, 0.9, 0.3, 1.18)",
-              },
-              {
-                transform:
-                  "translate(" +
-                  dx.toFixed(1) +
-                  "px, " +
-                  dy.toFixed(1) +
-                  "px) scale(" +
-                  s.toFixed(4) +
-                  ")",
-              },
-            ],
-            { duration: ms, fill: "forwards" },
+          // The app starts fading up as soon as the backdrop starts to
+          // clear, so the two overlap rather than one following the other.
+          setTimeout(
+            function () {
+              root.classList.remove("tvt-booting");
+            },
+            reduce ? 0 : 140,
           );
-          if (svg) {
-            svg.animate(
-              [
-                { borderRadius: getComputedStyle(svg).borderTopLeftRadius },
-                { borderRadius: radius / s + "px", boxShadow: "none" },
-              ],
-              { duration: ms, easing: "ease-in-out", fill: "forwards" },
-            );
-          }
-          var c = rect(title);
-          var d = rect(toTitle);
-          if (c && d) {
-            // The header title is left-aligned and smaller, so pin the
-            // left edge. It follows a beat behind the logo.
-            var ts =
-              parseFloat(getComputedStyle(toTitle).fontSize) /
-              parseFloat(getComputedStyle(title).fontSize);
-            var tx = d.left - c.left;
-            var ty = d.top + d.height / 2 - (c.top + c.height / 2);
-            title.animate(
-              [
-                { transform: "none", easing: "cubic-bezier(0.5, 0, 0.75, 0.4)" },
-                {
-                  offset: 0.4,
-                  transform:
-                    "translate(" +
-                    (tx * 0.1).toFixed(1) +
-                    "px, " +
-                    (ty * 0.5).toFixed(1) +
-                    "px) scale(" +
-                    (1 + (ts - 1) * 0.5).toFixed(3) +
-                    ")",
-                  easing: "cubic-bezier(0.2, 0.9, 0.3, 1.12)",
-                },
-                {
-                  transform:
-                    "translate(" +
-                    tx.toFixed(1) +
-                    "px, " +
-                    ty.toFixed(1) +
-                    "px) scale(" +
-                    ts.toFixed(4) +
-                    ")",
-                },
-              ],
-              { duration: ms - 80, delay: 80, fill: "forwards" },
-            );
-          } else {
-            title.style.opacity = "0";
-          }
-          // The page starts rising in once the film is on its way out.
-          setTimeout(function () {
-            root.classList.remove("tvt-booting");
-          }, ms * 0.35);
-          // Swap to the real header logo on the flight's last frame; the
-          // timer is the backstop.
-          var landed = false;
-          var onLand = function () {
-            if (landed) return;
-            landed = true;
-            finish(el);
-            toLogo.classList.add("tvt-landed");
-          };
-          flight.onfinish = onLand;
-          setTimeout(onLand, ms + 250);
+          setTimeout(
+            function () {
+              finish(el);
+            },
+            reduce ? 260 : 1000,
+          );
         };
 
         window.tvtSplashDone = function () {
@@ -221,11 +124,11 @@
           var el = document.getElementById("tvt-splash");
           if (!el) return finish(null);
           el.setAttribute("aria-busy", "false");
-          // Let the film roll and the name spell itself out before it all
-          // leaves, even on a fast (cached) load.
-          var wait = reduce ? 0 : Math.max(0, 1650 - (Date.now() - start));
+          // Let the film roll and the name fade in before it all leaves,
+          // even on a fast (cached) load.
+          var wait = reduce ? 0 : Math.max(0, 1700 - (Date.now() - start));
           setTimeout(function () {
-            flyHome(el);
+            leave(el);
           }, wait);
         };
       })();
@@ -290,52 +193,52 @@
           <span class="tvt-brand-glow"></span>
           <svg viewBox="0 0 192 192" width="92" height="92">
             <defs>
-              <linearGradient id="tvt-splash-bg" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stop-color="#1d1d20" />
-                <stop offset="1" stop-color="#09090a" />
-              </linearGradient>
+            <linearGradient id="tvt-splash-bg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#2b1733"/>
+            <stop offset="1" stop-color="#0d0a10"/>
+            </linearGradient>
+            <linearGradient id="tvt-splash-sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#1c1033"/>
+            <stop offset="1" stop-color="#4a1d4f"/>
+            </linearGradient>
+            <linearGradient id="tvt-splash-sun" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ffd66e"/>
+            <stop offset="0.55" stop-color="#ff8a4c"/>
+            <stop offset="1" stop-color="#ff4f7b"/>
+            </linearGradient>
+            <clipPath id="tvt-splash-screen">
+            <rect x="42" y="72" width="86" height="76" rx="16"/>
+            </clipPath>
             </defs>
-            <rect width="192" height="192" rx="42" fill="url(#tvt-splash-bg)" />
-            <g fill="#ffffff" fill-opacity="0.16">
-              <rect x="19" y="20" width="18" height="12" rx="3" />
-              <rect x="53" y="20" width="18" height="12" rx="3" />
-              <rect x="87" y="20" width="18" height="12" rx="3" />
-              <rect x="121" y="20" width="18" height="12" rx="3" />
-              <rect x="155" y="20" width="18" height="12" rx="3" />
-              <rect x="19" y="160" width="18" height="12" rx="3" />
-              <rect x="53" y="160" width="18" height="12" rx="3" />
-              <rect x="87" y="160" width="18" height="12" rx="3" />
-              <rect x="121" y="160" width="18" height="12" rx="3" />
-              <rect x="155" y="160" width="18" height="12" rx="3" />
+            <rect width="192" height="192" rx="42" fill="url(#tvt-splash-bg)"/>
+            <g stroke="#f4e9d8" stroke-width="6" stroke-linecap="round">
+            <line x1="96" y1="60" x2="72" y2="32"/>
+            <line x1="96" y1="60" x2="122" y2="30"/>
             </g>
-            <path
-              d="M28 96 C 54 52, 138 52, 164 96 C 138 140, 54 140, 28 96 Z"
-              fill="none"
-              stroke="#f5f5f7"
-              stroke-width="9"
-              stroke-linejoin="round"
-            />
-            <g class="tvt-brand-iris">
-              <circle cx="96" cy="96" r="27" fill="#ff9f0a" />
-              <path
-                d="M89 83 L89 109 L110 96 Z"
-                fill="#0b0b0c"
-                stroke="#0b0b0c"
-                stroke-width="5"
-                stroke-linejoin="round"
-              />
+            <circle cx="72" cy="32" r="5.5" fill="#f4e9d8"/>
+            <circle cx="122" cy="30" r="5.5" fill="#f4e9d8"/>
+            <rect x="28" y="58" width="136" height="104" rx="24" fill="#f4e9d8"/>
+            <g clip-path="url(#tvt-splash-screen)">
+            <rect x="42" y="72" width="86" height="76" fill="url(#tvt-splash-sky)"/>
+            <g class="tvt-brand-sun">
+            <circle cx="85" cy="130" r="32" fill="url(#tvt-splash-sun)"/>
+            <g fill="#3d1a48">
+            <rect x="42" y="120" width="86" height="3"/>
+            <rect x="42" y="128" width="86" height="4"/>
+            <rect x="42" y="137" width="86" height="5"/>
+            </g>
+            </g>
+            </g>
+            <circle cx="146" cy="90" r="7" fill="#2b1733"/>
+            <circle cx="146" cy="112" r="5" fill="#2b1733" fill-opacity="0.75"/>
+            <g fill="#2b1733" fill-opacity="0.35">
+            <rect x="138" y="128" width="16" height="3" rx="1.5"/>
+            <rect x="138" y="135" width="16" height="3" rx="1.5"/>
+            <rect x="138" y="142" width="16" height="3" rx="1.5"/>
             </g>
           </svg>
         </div>
-        <div class="tvt-splash-title">
-          <span class="sr-only">pree-it</span
-          ><span aria-hidden="true" class="tvt-letters"
-            ><span style="--d: 0">p</span><span style="--d: 1">r</span
-            ><span style="--d: 2">e</span><span style="--d: 3">e</span
-            ><span style="--d: 4" class="tvt-dash">-</span
-            ><span style="--d: 5">i</span><span style="--d: 6">t</span></span
-          >
-        </div>
+        <div class="tvt-splash-title">Nostalgiaa</div>
         <div class="tvt-splash-sub" id="tvt-splash-sub">
           Loading<span class="tvt-dots" aria-hidden="true"
             ><i></i><i></i><i></i

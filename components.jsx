@@ -420,8 +420,9 @@ function Picker({ label, value, options, onChange, style }) {
 }
 
 /* ScreenTitle — a screen's large title (as iOS draws them), with an
-   optional back button above it and a detail (a count) beside it. */
-function ScreenTitle({ title, detail, back }) {
+   optional back button above it, a small detail beside it, or one round
+   icon button (`action`: { icon, label, onClick }) at its end. */
+function ScreenTitle({ title, detail, back, action }) {
   return (
     <div style={{ margin: "2px 4px 14px" }}>
       {back && (
@@ -430,9 +431,14 @@ function ScreenTitle({ title, detail, back }) {
           background: "none", border: "none", color: "var(--accent)", fontSize: 16, cursor: "pointer",
         }}><ChevronIcon dir="left" size={18} />{back.label}</button>
       )}
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: action ? "center" : "baseline", justifyContent: "space-between", gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: "-0.025em" }}>{title}</h2>
         {detail != null && <span className="mono" style={{ fontSize: 13, color: "var(--ink-faint)" }}>{detail}</span>}
+        {action && (
+          <button type="button" onClick={action.onClick} aria-label={action.label} title={action.label} style={{ ...iconBtn(38), color: "var(--ink-dim)" }}>
+            {action.icon}
+          </button>
+        )}
       </div>
     </div>
   );

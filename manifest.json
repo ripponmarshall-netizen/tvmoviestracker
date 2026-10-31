@@ -1,7 +1,7 @@
 {
-  "name": "pree-it",
-  "short_name": "pree-it",
-  "description": "pree-it: keep track of the shows and movies you're watching, want to watch and have watched.",
+  "name": "Nostalgiaa",
+  "short_name": "Nostalgiaa",
+  "description": "Nostalgiaa: keep track of the shows and movies you're watching, want to watch and have watched.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
