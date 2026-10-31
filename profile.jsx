@@ -77,7 +77,7 @@ function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, usernam
 
   return (
     <main className="tvt-view tvt-page" style={{ padding: "8px 16px calc(120px + var(--safe-bottom))" }}>
-      <ScreenTitle title="Profile" />
+      <ScreenTitle title="Profile" action={{ icon: <GearIcon size={19} />, label: "Settings", onClick: onSettings }} />
       <ProfileHeader items={items} session={session} sync={sync} avatar={avatar} setAvatar={setAvatar} username={username} onEdit={onEditProfile} />
 
       <SectionHeader title="Watch Time" detail={pending ? "Updating…" : null} />
@@ -114,15 +114,14 @@ function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, usernam
         detail: counts[st.v].all, onClick: () => onOpenList(st.v),
       }))} />
 
-      <SectionHeader title="More" />
+      <SectionHeader title="Import" />
       <ListRows rows={[
-        { key: "settings", icon: <GearIcon size={18} />, tint: "#8e8e93", label: "Settings", sub: "Appearance, account, TMDB key, backups", onClick: onSettings },
         { key: "csv", icon: <UploadIcon size={18} />, tint: "var(--movie)", label: "Import CSV", sub: "From another tracker or a spreadsheet", onClick: onImportCsv },
       ]} />
 
       <HowCounted s={s} />
       <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", textAlign: "center", marginTop: 18 }}>
-        pree-it v{APP_VERSION}
+        {APP_NAME} v{APP_VERSION}
       </div>
     </main>
   );
@@ -519,7 +518,7 @@ function ProfileSheet({ username, setUsername, avatar, setAvatar, email, signedI
           <AvatarPicker avatar={avatar} setAvatar={setAvatar} name={clean} email={email} stacked />
         </div>
         <Field label="Username" htmlFor="tvt-username">
-          <input id="tvt-username" value={name} onChange={(e) => setName(e.target.value)} placeholder="What should pree-it call you?"
+          <input id="tvt-username" value={name} onChange={(e) => setName(e.target.value)} placeholder="What should Nostalgiaa call you?"
             maxLength={USERNAME_MAX + 10} autoComplete="nickname" autoCapitalize="words" spellCheck={false} enterKeyHint="done" style={fieldStyle()} />
           <div style={{ display: "flex", gap: 10, fontSize: 12.5, color: "var(--ink-faint)", marginTop: 8, lineHeight: 1.4 }}>
             <span style={{ flex: 1 }}>{signedIn ? "Shown on your profile, and synced to your other devices." : "Shown on your profile. Sign in to sync it."}</span>

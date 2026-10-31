@@ -37,11 +37,12 @@ const CSV_HEADS = {
   rating: ["yourrating", "myrating", "userrating", "rating", "rating10", "score", "myscore", "stars"],
   // "watchlist" last: some trackers name their status column after it.
   status: ["status", "watchstatus", "mystatus", "userstatus", "liststatus", "trackingstatus", "state", "list", "shelf", "watchlist"],
-  season: ["season", "seasonnumber", "seasonno", "seasonnum", "seasonnr", "episodeseasonnumber", "lastseason", "lastseasonwatched", "currentseason"],
+  season: ["season", "seasonnumber", "seasonno", "seasonnum", "seasonnr", "episodeseasonnumber", "episodeseason", "lastseason", "lastseasonwatched", "currentseason"],
   // The last episode watched, as a number or "S02E05".
-  episode: ["episode", "episodenumber", "episodeno", "episodenum", "episodenr", "lastepwatched", "lastepisodewatched", "lastwatchedepisode", "lastepisode", "currentepisode", "progress"],
+  episode: ["episode", "episodenumber", "episodeno", "episodenum", "episodenr", "episodenumberinseason", "ep", "episodecode", "sxe", "lastepwatched", "lastepisodewatched", "lastwatchedepisode", "lastepisode", "currentepisode", "progress"],
   note: ["note", "notes", "mynotes", "review", "comment", "comments"],
-  added: ["dateadded", "added", "addedat", "createdat", "created", "daterated", "ratedat", "watchedat", "watcheddate", "lastwatched", "lastwatchedat", "date"],
+  added: ["dateadded", "added", "addedat", "createdat", "created", "daterated", "ratedat", "watchedat", "watcheddate", "datewatched", "watchedon", "watchdate",
+    "seenat", "seendate", "seenon", "viewedat", "vieweddate", "viewdate", "playedat", "lastwatched", "lastwatchedat", "updatedat", "timestamp", "date"],
 };
 
 const normHead = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -82,18 +83,38 @@ function parseCsv(text) {
   return rows.filter((r) => r.some((f) => f.trim()));
 }
 
-/* Which column holds each field, from a header row. */
+/* Which column holds each field, from a header row. `alts` keeps every
+   column that could be the season or episode, in order of preference, so
+   csvRecords can pass over one holding names ("Pilot") for one holding
+   numbers. */
 function csvColumns(row) {
   const heads = row.map(normHead);
-  const cols = {};
+  const cols = {}, alts = {};
   for (const [f, names] of Object.entries(CSV_HEADS)) {
     for (const n of names) {
       const i = heads.indexOf(n);
-      if (i !== -1 && !Object.values(cols).includes(i)) { cols[f] = i; break; }
+      if (i === -1 || Object.values(cols).includes(i)) continue;
+      if (cols[f] == null) cols[f] = i;
+      if (f === "season" || f === "episode") (alts[f] = alts[f] || []).push(i);
+      else break;
     }
   }
-  return { cols, heads };
+  return { cols, heads, alts };
 }
+/* A season or episode column holds numbers ("3", "S01E05", "Season 2"),
+   not names. */
+const EP_TEXT = /^\s*(?:s\d+\s*e\d+|\d+x\d+|s(?:eason)?\s*\d+|e(?:p(?:isode)?)?\s*\d+|\d+)(?!\d)/i;
+function numericColumn(rows, candidates) {
+  if (!candidates || candidates.length < 2) return candidates?.[0];
+  const sample = rows.slice(0, 60);
+  for (const i of candidates) {
+    const vals = sample.map((r) => String(r[i] ?? "").trim()).filter(Boolean);
+    if (vals.length && vals.filter((v) => EP_TEXT.test(v)).length >= vals.length * 0.6) return i;
+  }
+  return candidates[0];
+}
+/* The number in "3", "Season 3" or "E03". */
+const numIn = (v) => toInt((String(v || "").match(/\d+/) || [""])[0]);
 
 function csvKind(v) {
   v = normHead(v);
@@ -131,19 +152,25 @@ function csvRecords(rows) {
   // list itself.
   let best = null;
   rows.slice(0, 10).forEach((r, i) => {
-    const { cols, heads } = csvColumns(r);
+    const { cols, heads, alts } = csvColumns(r);
     const n = Object.keys(cols).length;
-    if (cols.title != null && (!best || n >= best.n)) best = { i, n, cols, heads };
+    if (cols.title != null && (!best || n >= best.n)) best = { i, n, cols, heads, alts };
   });
   if (!best) return null;
-  const { cols, heads } = best;
+  const { heads } = best;
+  const body = rows.slice(best.i + 1);
+  const cols = { ...best.cols };
+  for (const f of ["season", "episode"]) {
+    const i = numericColumn(body, best.alts[f]);
+    if (i != null) cols[f] = i;
+  }
   const at = (r, f) => (cols[f] == null ? "" : String(r[cols[f]] ?? "").trim());
   const showTitles = SHOW_TITLE_HEADS.includes(heads[cols.title]);
   const letterboxd = heads.includes("letterboxduri");
 
   const recs = [];
   let skipped = 0;
-  for (const r of rows.slice(best.i + 1)) {
+  for (const r of body) {
     const named = splitYear(at(r, "title").slice(0, 200));
     const title = named.title;
     const kindText = normHead(at(r, "kind"));
@@ -152,9 +179,11 @@ function csvRecords(rows) {
     if (!title || /game|podcast/.test(kindText) || (kindText.includes("episode") && !showTitles)) { skipped++; continue; }
     const url = at(r, "url");
     const tmdbUrl = url.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
-    const sxe = (at(r, "episode") + " " + at(r, "season")).match(/s(\d+)\s*e(\d+)|\b(\d+)x(\d+)\b/i);
-    const season = sxe ? toInt(sxe[1] || sxe[3]) : toInt(at(r, "season"));
-    const episode = sxe ? toInt(sxe[2] || sxe[4]) : toInt(at(r, "episode"));
+    // "S02E05", "2x05" or "Season 2 Episode 5" in either column; else a
+    // number in each ("Season 2" counts).
+    const sxe = (at(r, "episode") + " " + at(r, "season")).match(/s(\d+)\s*e(\d+)|\b(\d+)x(\d+)\b|season\s*(\d+)\D{0,4}episode\s*(\d+)/i);
+    const season = sxe ? toInt(sxe[1] || sxe[3] || sxe[5]) : numIn(at(r, "season"));
+    const episode = sxe ? toInt(sxe[2] || sxe[4] || sxe[6]) : numIn(at(r, "episode"));
     let kind = csvKind(kindText) || (tmdbUrl && tmdbUrl[1]) || null;
     const caughtUp = csvCaughtUp(at(r, "status"));
     if (!kind && (showTitles || episode > 0 || caughtUp)) kind = "tv";
@@ -247,7 +276,7 @@ function guessRole(name) {
   const n = name.toLowerCase();
   if (/rating|rated|score/.test(n)) return "ratings";
   if (/watchlist|list|queue|plan/.test(n)) return "list";
-  if (/watched|history|diary|seen|completed|views/.test(n)) return "watched";
+  if (/watched|watches|history|diary|seen|completed|views|plays|watch[-_ ]?log/.test(n)) return "watched";
   return "library";
 }
 
@@ -527,7 +556,12 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
                 <div style={{ fontSize: 12.5, color: f.error ? "var(--danger)" : "var(--ink-dim)", marginTop: 2 }}>
-                  {f.error || [plural(f.recs.length, "title"), f.skipped && `${f.skipped} row${f.skipped === 1 ? "" : "s"} skipped`].filter(Boolean).join(" · ")}
+                  {f.error || [
+                    plural(f.recs.length, "title"),
+                    // So you can see an episode log was read as one, before importing.
+                    f.recs.some((x) => x.episode > 0) && `${plural(f.recs.filter((x) => x.episode > 0).length, "show")} with episode progress`,
+                    f.skipped && `${f.skipped} row${f.skipped === 1 ? "" : "s"} skipped`,
+                  ].filter(Boolean).join(" · ")}
                 </div>
                 {/* So a file whose status or episode column wasn't
                     recognised shows it before anything is imported. */}

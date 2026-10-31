@@ -2,7 +2,8 @@
    and the tab bar */
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.8.0";
+const APP_NAME = "Nostalgiaa";
+const APP_VERSION = "1.9.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -441,8 +442,6 @@ function App() {
   const counts = useMemo(() => ({ watching: items.filter((i) => i.status === "watching").length }), [items]);
 
   const isNew = editing && !items.some((i) => i.id === editing.id);
-  // The + button adds to the list on screen; on Watching, to Watching.
-  const addStatus = list || (tab === "watching" ? "watching" : "watchlist");
   const openSettings = () => setSettingsOpen(true);
 
   // Each screen is keyed, so it rises in afresh when you switch.
@@ -473,7 +472,7 @@ function App() {
   return (
     <div>
       {/* Profile has its own way into Settings, and nothing to add to. */}
-      <Header bare={tab === "profile" && !list} onAdd={() => setEditing(blankItem(addStatus))} onSettings={openSettings} />
+      <Header />
 
       <PullToRefresh onRefresh={refresh}>{screen}</PullToRefresh>
 
@@ -544,8 +543,10 @@ function App() {
   );
 }
 
-/* ============ Header ============ */
-function Header({ bare, onAdd, onSettings }) {
+/* ============ Header ============
+   The app's name and logo, the same on every tab. No buttons: titles are
+   added from Explore's search, and Settings lives on Profile. */
+function Header() {
   // The hairline under the header only shows once the page has scrolled.
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -557,17 +558,8 @@ function Header({ bare, onAdd, onSettings }) {
   return (
     <header className={"tvt-header" + (scrolled ? " is-scrolled" : "")}>
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "calc(var(--safe-top) + 12px) 16px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-        {/* The splash logo and title fly onto these two (index.html). */}
-        <img data-splash-target="logo" src="icon.svg" alt="" width="30" height="30" style={{ borderRadius: 8, flexShrink: 0 }} />
-        <h1 data-splash-target="title" style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 21, fontWeight: 700, letterSpacing: "-0.035em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          pree<span className="tvt-dash">-</span>it
-        </h1>
-        {!bare && (
-          <>
-            <button type="button" onClick={onAdd} aria-label="Add a title" title="Add a title" style={{ ...iconBtn(), background: "var(--accent)", color: "var(--accent-ink)" }}><PlusIcon /></button>
-            <button type="button" onClick={onSettings} aria-label="Settings" title="Settings" style={iconBtn()}><GearIcon /></button>
-          </>
-        )}
+        <img src="icon.svg" alt="" width="30" height="30" style={{ display: "block", borderRadius: 8, flexShrink: 0 }} />
+        <h1 className="tvt-wordmark">{APP_NAME}</h1>
       </div>
     </header>
   );
@@ -956,8 +948,8 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
   };
 
   const exportJson = async () => {
-    const name = `pree-it-${new Date().toISOString().slice(0, 10)}.json`;
-    const data = JSON.stringify({ app: "pree-it", v: 1, exported: nowIso(), items }, null, 2);
+    const name = `nostalgiaa-${new Date().toISOString().slice(0, 10)}.json`;
+    const data = JSON.stringify({ app: "nostalgiaa", v: 1, exported: nowIso(), items }, null, 2);
     const blob = new Blob([data], { type: "application/json" });
     // On iPhone the share sheet (Save to Files, AirDrop, Mail) is the
     // reliable way to get a file out of a Home Screen app.
@@ -982,7 +974,7 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
       if (!Array.isArray(raw)) throw new Error("no items");
       list = cleanList(raw);
     } catch {
-      showToast("That file isn't a pree-it backup");
+      showToast("That file isn't a Nostalgiaa backup");
       return;
     }
     const ok = await askConfirm({
@@ -1010,73 +1002,91 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
   return (
     <ModalFrame sheet dismiss={{ ref, closing, close }} label="Settings">
       <ModalHead title="Settings" onClose={close} />
-      <SettingsGroup id="appearance" icon={<PaletteIcon size={17} />} tint="var(--movie)" title="Appearance" summary={THEMES.find((t) => t.v === theme)?.l} defaultOpen>
-        <SegToggle full options={THEMES} value={theme} onChange={setTheme} label="Appearance" />
-      </SettingsGroup>
-      <SettingsGroup id="profile" icon={<PersonIcon size={17} />} tint="var(--accent)" title="Profile" summary={username || "No username"}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Avatar src={avatar} name={username} email={email} size={48} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{username || "No username yet"}</div>
-            <div style={{ fontSize: 12.5, color: "var(--ink-dim)", marginTop: 2 }}>{avatar ? "Profile picture set" : "No profile picture"}</div>
+
+      <SettingsSection title="Appearance">
+        <div style={{ padding: 10 }}>
+          <SegToggle full options={THEMES} value={theme} onChange={setTheme} label="Appearance" />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="You">
+        <SettingsGroup id="profile" icon={<PersonIcon size={16} />} tint="var(--accent)" title="Profile" summary={username || "No username"}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Avatar src={avatar} name={username} email={email} size={44} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{username || "No username yet"}</div>
+              <div style={{ fontSize: 12.5, color: "var(--ink-dim)", marginTop: 2 }}>{avatar ? "Profile picture set" : "No profile picture"}</div>
+            </div>
+            <button type="button" onClick={onEditProfile} style={ghostBtn()}>Edit</button>
           </div>
-          <button type="button" onClick={onEditProfile} style={ghostBtn()}>Edit</button>
-        </div>
-      </SettingsGroup>
-      {cloud && (
-        <SettingsGroup id="account" icon={<CloudIcon size={17} />} tint="var(--tv)" title="Account & Sync"
-          summary={session === undefined ? "…" : session ? syncLabel(sync.status).split(":")[0] : "Not signed in"} defaultOpen={!session}>
-          <AccountSection session={session} sync={sync} avatar={avatar} username={username} />
         </SettingsGroup>
-      )}
-      <SettingsGroup id="tmdb" icon={<KeyIcon size={17} />} tint="var(--ok)" title="Title Search (TMDB)" summary={tmdbKey ? "Key added" : "No key"} defaultOpen={!tmdbKey}>
-        <div style={note}>
-          Paste your free TMDB API key to search titles and get posters, episode lists and Explore. Get one at{" "}
-          <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>themoviedb.org → Settings → API</a>.
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input id="tvt-tmdb" aria-label="TMDB API key" value={tmdbKey} onChange={(e) => setTmdbKey(e.target.value.trim())} placeholder="API key or read access token"
-            autoComplete="off" autoCapitalize="off" spellCheck={false} style={{ ...fieldStyle(), flex: 1, minWidth: 0 }} />
-          <button type="button" onClick={testKey} disabled={!tmdbKey || testing} style={{ ...ghostBtn(), opacity: tmdbKey ? 1 : 0.4 }}>{testing ? "Testing…" : "Test"}</button>
-        </div>
-      </SettingsGroup>
-      <SettingsGroup id="region" icon={<PlayIcon size={17} />} tint="#ff9f0a" title="Where to Watch" summary={regionName(region)}>
-        <div style={note}>
-          The country whose streaming services the title sheet lists, from JustWatch (through TMDB, so it needs the TMDB key). Where JustWatch has nothing for it, the sheet shows the US.
-        </div>
-        <Picker label="Country" value={region} options={regionOpts} onChange={(v) => setRegion(String(v))} />
-      </SettingsGroup>
-      <SettingsGroup id="trakt" icon={<ActivityIcon size={17} />} tint="#ed1c24" title="Trakt" summary={trakt.token?.access ? "Connected" : trakt.id ? "Client ID added" : "Not set up"}>
-        <TraktSettings items={items} onImport={(plan) => { onImportPlan(plan); close(); }} />
-      </SettingsGroup>
-      <SettingsGroup id="backup" icon={<ArchiveIcon size={17} />} tint="#8e8e93" title="Backup & Import" summary={plural(items.length, "title")}>
-        <div style={note}>
-          {signedIn
-            ? "Your list syncs to your account. A backup file is still worth keeping now and then."
-            : "Your list is saved on this device only. Export a copy now and then: Safari can clear a site's data."}
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" onClick={exportJson} style={ghostBtn()}>Export Backup</button>
-          <button type="button" onClick={() => fileRef.current?.click()} style={ghostBtn()}>Restore Backup</button>
-          <button type="button" onClick={onImportCsv} style={ghostBtn()}>Import CSV</button>
-          <input ref={fileRef} type="file" accept="application/json,.json" onChange={importJson} hidden />
-        </div>
-        <div style={{ ...note, fontSize: 12.5, color: "var(--ink-faint)", margin: "8px 0 0" }}>
-          Import CSV merges ratings, library, watched and list exports, such as another tracker's, into your list.
-        </div>
-      </SettingsGroup>
-      <SettingsGroup id="reset" icon={<TrashIcon size={17} />} tint="var(--danger)" title="Reset">
-        <div style={note}>Removes every title{signedIn ? ", here and in your account" : ""}. Your settings stay.</div>
-        <button type="button" onClick={erase} disabled={!items.length} style={{ ...ghostBtn(), color: "var(--danger)", opacity: items.length ? 1 : 0.4 }}>Erase Everything</button>
-      </SettingsGroup>
-      <SettingsGroup id="credits" icon={<InfoIcon size={17} />} tint="#5e5ce6" title="About & Credits" summary="TMDB · TVmaze · Wikidata">
-        <Credits />
-      </SettingsGroup>
-      <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 14 }}>
-        pree-it v{APP_VERSION} · {plural(items.length, "title")}
+        {cloud && (
+          <SettingsGroup id="account" icon={<CloudIcon size={16} />} tint="var(--tv)" title="Account & Sync"
+            summary={session === undefined ? "…" : session ? syncLabel(sync.status).split(":")[0] : "Not signed in"} defaultOpen={!session}>
+            <AccountSection session={session} sync={sync} avatar={avatar} username={username} />
+          </SettingsGroup>
+        )}
+      </SettingsSection>
+
+      <SettingsSection title="Services">
+        <SettingsGroup id="tmdb" icon={<KeyIcon size={16} />} tint="var(--ok)" title="Title Search" summary={tmdbKey ? "TMDB key added" : "No key"} defaultOpen={!tmdbKey}>
+          <div style={note}>
+            Paste your free TMDB API key to search titles and get posters, episode lists and Explore. Get one at{" "}
+            <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>themoviedb.org → Settings → API</a>.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input id="tvt-tmdb" aria-label="TMDB API key" value={tmdbKey} onChange={(e) => setTmdbKey(e.target.value.trim())} placeholder="API key or read access token"
+              autoComplete="off" autoCapitalize="off" spellCheck={false} style={{ ...fieldStyle(), flex: 1, minWidth: 0 }} />
+            <button type="button" onClick={testKey} disabled={!tmdbKey || testing} style={{ ...ghostBtn(), opacity: tmdbKey ? 1 : 0.4 }}>{testing ? "Testing…" : "Test"}</button>
+          </div>
+        </SettingsGroup>
+        <SettingsGroup id="region" icon={<PlayIcon size={15} />} tint="#ff9f0a" title="Where to Watch" summary={regionName(region)}>
+          <div style={note}>
+            The country whose streaming services the title sheet lists, from JustWatch (through TMDB, so it needs the TMDB key). Where JustWatch has nothing for it, the sheet shows the US.
+          </div>
+          <Picker label="Country" value={region} options={regionOpts} onChange={(v) => setRegion(String(v))} />
+        </SettingsGroup>
+        <SettingsGroup id="trakt" icon={<ActivityIcon size={16} />} tint="#ed1c24" title="Trakt" summary={trakt.token?.access ? "Connected" : trakt.id ? "Client ID added" : "Not set up"}>
+          <TraktSettings items={items} onImport={(plan) => { onImportPlan(plan); close(); }} />
+        </SettingsGroup>
+      </SettingsSection>
+
+      <SettingsSection title="Your Data">
+        <SettingsGroup id="backup" icon={<ArchiveIcon size={16} />} tint="#8e8e93" title="Backup & Import" summary={plural(items.length, "title")}>
+          <div style={note}>
+            {signedIn
+              ? "Your list syncs to your account. A backup file is still worth keeping now and then."
+              : "Your list is saved on this device only. Export a copy now and then: Safari can clear a site's data."}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={exportJson} style={ghostBtn()}>Export Backup</button>
+            <button type="button" onClick={() => fileRef.current?.click()} style={ghostBtn()}>Restore Backup</button>
+            <button type="button" onClick={onImportCsv} style={ghostBtn()}>Import CSV</button>
+            <input ref={fileRef} type="file" accept="application/json,.json" onChange={importJson} hidden />
+          </div>
+          <div style={{ ...note, fontSize: 12.5, color: "var(--ink-faint)", margin: "8px 0 0" }}>
+            Import CSV merges ratings, library, watched, list and episode-history exports, such as another tracker's, into your list.
+          </div>
+        </SettingsGroup>
+        <SettingsGroup id="reset" icon={<TrashIcon size={16} />} tint="var(--danger)" title="Erase Everything">
+          <div style={note}>Removes every title{signedIn ? ", here and in your account" : ""}. Your settings stay. You can undo straight after.</div>
+          <button type="button" onClick={erase} disabled={!items.length} style={{ ...ghostBtn(), color: "var(--danger)", opacity: items.length ? 1 : 0.4 }}>Erase {plural(items.length, "title")}</button>
+        </SettingsGroup>
+      </SettingsSection>
+
+      <SettingsSection title="About">
+        <SettingsGroup id="credits" icon={<InfoIcon size={16} />} tint="#5e5ce6" title="Credits" summary="TMDB · TVmaze · Wikidata">
+          <Credits />
+        </SettingsGroup>
+      </SettingsSection>
+
+      <div style={{ textAlign: "center", marginTop: 22 }}>
+        <img src="icon.svg" alt="" width="36" height="36" style={{ display: "block", margin: "0 auto 8px", borderRadius: 9 }} />
+        <div className="tvt-wordmark" style={{ fontSize: 15 }}>{APP_NAME}</div>
+        <div className="mono" style={{ fontSize: 11.5, color: "var(--ink-faint)", marginTop: 3 }}>v{APP_VERSION} · {plural(items.length, "title")}</div>
       </div>
       {/* TMDB's terms ask apps using its API to say this where it can be seen. */}
-      <div style={{ fontSize: 11.5, color: "var(--ink-faint)", marginTop: 6, lineHeight: 1.4 }}>
+      <div style={{ fontSize: 11, color: "var(--ink-faint)", margin: "12px auto 0", lineHeight: 1.45, textAlign: "center", maxWidth: 340 }}>
         This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming data from JustWatch. Schedules from TVmaze, under CC BY-SA 4.0. Facts from Wikidata (CC0).
       </div>
     </ModalFrame>
@@ -1149,31 +1159,42 @@ function Credits() {
             <span style={{ fontSize: 12, color: "var(--ink-faint)", flexShrink: 0 }}>{licence}</span>
           </div>
         ))}
-        <div style={{ color: "var(--ink-faint)", fontSize: 12.5, marginTop: 6 }}>Scripts load from unpkg and the font from Google Fonts. Icons are drawn for pree-it.</div>
+        <div style={{ color: "var(--ink-faint)", fontSize: 12.5, marginTop: 6 }}>Scripts load from unpkg and the font from Google Fonts. Icons are drawn for {APP_NAME}.</div>
       </div>
     </div>
   );
 }
 
-/* One section of Settings: a row with a tinted icon, its name and a
-   summary, that opens (chevron down) onto its controls. Remembered. */
+/* Settings is laid out as iOS draws it: small headed sections, each one
+   card of rows split by hairlines. */
+function SettingsSection({ title, children }) {
+  return (
+    <section style={{ marginBottom: 20 }}>
+      <div className="tvt-settings-label">{title}</div>
+      <div className="tvt-settings-card">{children}</div>
+    </section>
+  );
+}
+
+/* One row of Settings: a small tinted icon, its name and a summary, that
+   opens (chevron down) onto its controls. Remembered. */
 function SettingsGroup({ id, icon, tint, title, summary, defaultOpen = false, children }) {
   const [open, toggle] = useFold(`settings:${id}`, defaultOpen);
   return (
-    <div style={{ background: "var(--bg-2)", borderRadius: 16, marginBottom: 10 }}>
+    <div className="tvt-settings-row">
       <button type="button" onClick={toggle} aria-expanded={open} className="tvt-wide-btn" style={{
-        width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", margin: 0,
+        width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", minHeight: 48, margin: 0,
         background: "none", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
       }}>
-        <span aria-hidden style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: tint, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{icon}</span>
-        <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 500 }}>{title}</span>
-        {summary && <span style={{ fontSize: 13.5, color: "var(--ink-dim)", maxWidth: "42%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{summary}</span>}
-        <span aria-hidden style={{ display: "inline-flex", color: "var(--ink-faint)", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.3s var(--ease-snappy)" }}>
-          <ChevronIcon dir="down" size={14} />
+        <span aria-hidden className="tvt-settings-icon" style={{ "--tint": tint }}>{icon}</span>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 500, letterSpacing: "-0.01em" }}>{title}</span>
+        {summary && <span style={{ fontSize: 13.5, color: "var(--ink-faint)", maxWidth: "45%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{summary}</span>}
+        <span aria-hidden style={{ display: "inline-flex", color: "var(--ink-faint)", opacity: 0.7, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.3s var(--ease-snappy)" }}>
+          <ChevronIcon dir="down" size={13} />
         </span>
       </button>
       <Collapse open={open}>
-        <div style={{ padding: "2px 14px 14px" }}>{children}</div>
+        <div style={{ padding: "0 14px 14px 54px" }}>{children}</div>
       </Collapse>
     </div>
   );
