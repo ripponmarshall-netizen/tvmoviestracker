@@ -10,6 +10,23 @@ const TMDB_IMG = "https://image.tmdb.org/t/p/";
 const TMDB_LANGUAGE = "en-US";
 const DAY_MS = 864e5;
 
+/* Where you watch, for "Where to Watch" (TMDB's streaming data, from
+   JustWatch): a country code such as "JM". The app sets it from Settings
+   (setWatchRegion); details fetched for another country are fetched again
+   when a sheet opens. */
+let watchRegion = "US";
+function setWatchRegion(r) { watchRegion = /^[A-Z]{2}$/.test(r || "") ? r : "US"; }
+/* A guess for a first launch: Jamaica's time zone, else the language's
+   country, else the US. */
+function guessRegion() {
+  try {
+    if (Intl.DateTimeFormat().resolvedOptions().timeZone === "America/Jamaica") return "JM";
+    const m = (navigator.language || "").match(/-([A-Z]{2})$/i);
+    if (m) return m[1].toUpperCase();
+  } catch {}
+  return "US";
+}
+
 /* A poster path ("/abc.jpg") as a URL at one of TMDB's widths: w92, w154,
    w185, w342, w500, w780 or original. */
 function posterUrl(path, size = "w185") {
@@ -119,9 +136,9 @@ let detailsSaveTimer = 0;
 /* Only the saved copy is trimmed, never the one in memory: a screen that
    counts more titles than DETAILS_MAX (Profile, on a big library) would
    otherwise see them dropped, fetch them again, and go round for ever.
-   The synopsis is most of a title's size, so it's saved only for the
-   titles with "More like this" saved (the ones opened lately); the sheet
-   fetches it again for the rest. */
+   The synopsis (and where to watch) is most of a title's size, so it's
+   saved only for the titles with "More like this" saved (the ones opened
+   lately); the sheet fetches it again for the rest. */
 function saveDetailsSoon() {
   clearTimeout(detailsSaveTimer);
   detailsSaveTimer = setTimeout(() => {
@@ -129,7 +146,7 @@ function saveDetailsSoon() {
     const recs = recsAll();
     const out = {};
     for (const k of Object.keys(all).sort((a, b) => all[b].at - all[a].at).slice(0, DETAILS_MAX)) {
-      out[k] = recs.has(k) ? all[k] : { ...all[k], overview: "", tagline: "" };
+      out[k] = recs.has(k) ? all[k] : { ...all[k], overview: "", tagline: "", wp: null };
     }
     // It's only a cache: if storage is full, drop it rather than leave
     // the list itself (tvt:v1) without room to save.
@@ -186,8 +203,10 @@ function detailsStale(d) {
    `seasons` maps season number to episode count (specials left out),
    `last` is the latest aired episode as [season, episode] (`lastDate` the
    day it aired), and `next` the next one announced. `rt` is minutes: a movie's runtime, or a show's
-   typical episode (0 when TMDB doesn't know). `imdb` and `tvdb` are a
-   show's ids elsewhere, for TVmaze. */
+   typical episode (0 when TMDB doesn't know). `imdb` (shows and movies)
+   and `tvdb` are its ids elsewhere, for TVmaze and Wikidata. `wp` is where
+   to watch it in `wpr`, the country it was fetched for, and in the US
+   (`providersFor` reads it). */
 function compactDetails(kind, r) {
   const tv = kind === "tv";
   const seasons = {};
@@ -217,17 +236,49 @@ function compactDetails(kind, r) {
     last: last ? [last.season_number, last.episode_number] : null,
     lastDate: last?.air_date || "",
     next: next ? { s: next.season_number, e: next.episode_number, date: next.air_date || "" } : null,
-    imdb: tv && /^tt\d+$/.test(r.external_ids?.imdb_id || "") ? r.external_ids.imdb_id : "",
+    imdb: [r.imdb_id, r.external_ids?.imdb_id].find((x) => /^tt\d+$/.test(x || "")) || "",
     tvdb: tv && r.external_ids?.tvdb_id > 0 ? r.external_ids.tvdb_id : 0,
+    wpr: watchRegion,
+    wp: compactProviders(r["watch/providers"]?.results),
   };
+}
+
+/* TMDB's /watch/providers (JustWatch's data) for your country and the
+   US: per country, the TMDB page that links out to each service, and the
+   services by how you'd watch, each as [id, name, logo]. */
+const PROVIDER_KINDS = [["stream", "flatrate"], ["free", "free"], ["ads", "ads"], ["rent", "rent"], ["buy", "buy"]];
+function compactProviders(results) {
+  if (!results) return null;
+  const out = {};
+  for (const c of new Set([watchRegion, "US"])) {
+    const x = results[c];
+    if (!x) continue;
+    const one = { link: /^https:\/\/www\.themoviedb\.org\//.test(x.link || "") ? x.link : "" };
+    for (const [k, from] of PROVIDER_KINDS) {
+      const list = (x[from] || []).filter((p) => p.provider_id && p.provider_name).slice(0, 10);
+      if (list.length) one[k] = list.map((p) => [p.provider_id, String(p.provider_name).slice(0, 60), p.logo_path || ""]);
+    }
+    out[c] = one;
+  }
+  return out;
+}
+/* Where to watch a title in your country, else (when JustWatch has
+   nothing there) the US: { region, link, stream, free, ads, rent, buy },
+   or null if neither has anything. */
+function providersFor(d) {
+  const has = (x) => x && PROVIDER_KINDS.some(([k]) => x[k]);
+  if (!d?.wp) return null;
+  for (const c of [watchRegion, "US"]) if (has(d.wp[c])) return { region: c, ...d.wp[c] };
+  return null;
 }
 
 /* Fetch (or join the fetch already under way for) a title's details. */
 function loadDetails(kind, id, key) {
   const k = detailsKey(kind, id);
   if (detailsInflight.has(k)) return detailsInflight.get(k);
-  // A show's IMDb and TVDB ids come too: they find it on TVmaze.
-  const extra = kind === "tv" ? "recommendations,external_ids" : "recommendations";
+  // A show's IMDb and TVDB ids come too: they find it on TVmaze. And
+  // where to watch it, in the same request.
+  const extra = kind === "tv" ? "recommendations,external_ids,watch/providers" : "recommendations,watch/providers";
   const p = tmdbGet(`/${kind}/${id}`, { language: TMDB_LANGUAGE, append_to_response: extra }, key)
     .then((r) => {
       const d = compactDetails(kind, r);
@@ -262,7 +313,8 @@ function useTitleDetails(kind, id, key) {
     if (!id) return;
     const k = detailsKey(kind, id);
     const undo = mountIn(detailsMounted, k, { kind, id });
-    if (key && !(recsAll().has(k) && !detailsStale(cachedDetails(kind, id)))) {
+    const c = cachedDetails(kind, id);
+    if (key && !(recsAll().has(k) && !detailsStale(c) && c.wpr === watchRegion)) {
       loadDetails(kind, id, key).catch((e) => setError(e.message || "Couldn't load details"));
     }
     return undo;
@@ -541,6 +593,7 @@ function PosterThumb({ path }) {
 }
 
 Object.assign(window, {
+  setWatchRegion, guessRegion, providersFor,
   posterUrl, backdropUrl, fmtDate, fmtRuntime, fmtCount, tmdbTile, searchTitles, testTmdbKey,
   cachedDetails, useTitleDetails, usePrefetchDetails, useTmdbList, useTmdbSearch, refreshTmdb, tmdbGet,
   episodesWatched, airedEpisodes, isFinished, nextEpisode, latestAired, fetchDetailsFor, SearchResults, PosterThumb,
