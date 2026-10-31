@@ -163,7 +163,7 @@ function LongList({ items, render, leaving, step = 20 }) {
    you're caught up on, your watchlist, titles like your recent ones, what
    you've finished lately and what's on hold. The lists fold away under
    their headers (remembered), and each has a "…" menu for all its shows. */
-function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSeeAll, onExplore, onMore, onBulk }) {
+function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSeeAll, onExplore, onMore, onBulk, onSettings }) {
   const watching = items.filter((i) => i.status === "watching");
   const pending = usePrefetchDetails(watching, tmdbKey, true);
   // Order fixed while you're here (as on the list screens), so a card you
@@ -221,6 +221,11 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
               ? `Your ${plural(unstarted.length, "show")} without an episode ticked ${unstarted.length === 1 ? "is" : "are"} under Not Started. Tick the first episode, or use ••• to pick where you are or mark one caught up.`
               : caughtup.length ? "You're caught up. Shows come back here when a new episode airs." : "Pick something back up from On Hold below."}
           </div>
+          {/* Many shows with no progress usually means an import that had
+              only their names: a watch history fills it in. */}
+          {unstarted.length >= 5 && (
+            <button type="button" onClick={onSettings} style={{ ...ghostBtn(), marginTop: 14 }}>Import Progress from Trakt</button>
+          )}
         </Card>
       ) : (
         <Card style={{ textAlign: "center", padding: "30px 20px", marginBottom: 22 }}>
@@ -237,7 +242,7 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
 
       {unstarted.length > 0 && (
         <FoldSection id="watching:unstarted" title="Not Started" count={unstarted.length} defaultOpen={!hero} onMenu={bulk("unstarted", unstarted)}
-          note="No episode ticked yet. Tick the first one, or ••• to pick the episode you're on or mark a show caught up.">
+          note="No episode ticked yet. Tick the first one, or ••• to pick the episode you're on or mark a show caught up. Settings → Trakt brings in where you are from your Trakt history.">
           <LongList items={unstarted} leaving={isLeaving} render={row("unstarted")} />
         </FoldSection>
       )}

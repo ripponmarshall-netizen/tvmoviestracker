@@ -300,7 +300,9 @@ function planImport(files, items) {
     if (next.kind === "tv" && x.season && laterEp(next, x) === x) {
       next.season = x.season;
       next.episode = x.episode;
-      if (x.last > (next.lastWatched || "")) next.lastWatched = x.last;
+      // A show with no episode ticked has only ever been "put on the go":
+      // the history's date says when you really watched it.
+      if (x.last && (!hasProgress(base) || x.last > (next.lastWatched || ""))) next.lastWatched = x.last;
     }
     // Episodes watched mean it's started, even if a guessed status said
     // Watchlist (this is how a re-import puts shows back on the go).
@@ -308,7 +310,7 @@ function planImport(files, items) {
     if (!next.tmdbId && x.tmdbId && x.kind === next.kind) next.tmdbId = x.tmdbId;
     if (!next.year && x.year) next.year = x.year;
     if (!next.note && x.note) next.note = x.note;
-    const changed = ["status", "rating", "season", "episode", "tmdbId", "year", "note"].some((k) => next[k] !== base[k]);
+    const changed = ["status", "rating", "season", "episode", "tmdbId", "year", "note", "lastWatched"].some((k) => next[k] !== base[k]);
     if (changed) changes.set(base.id, normaliseItem(touch(next)));
   }
 

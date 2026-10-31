@@ -1,6 +1,7 @@
 /* detail.jsx — the title sheet: big artwork, the facts (rating, dates,
    runtime) in a strip like the App Store's, your status, progress and
-   rating, and more like it. It opens for titles in your library and for
+   rating, where to watch it, its schedule, facts from Wikidata, Trakt's
+   numbers, and more like it. It opens for titles in your library and for
    ones from Explore; picking a status adds a new one. */
 const { useState: useStateD, useEffect: useEffectD } = React;
 
@@ -11,7 +12,7 @@ function findInLibrary(items, t) {
     || null;
 }
 
-function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onCatchUp, onEdit, onDelete, onClose }) {
+function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPatch, onCatchUp, onEdit, onDelete, onClose }) {
   const { ref, closing, close } = useModalDismiss(onClose);
   // A title from "More Like This" opens in the same sheet; Back returns.
   const [stack, setStack] = useStateD([target]);
@@ -47,6 +48,10 @@ function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onCa
   const nextUp = item && tv && item.status === "watching" ? nextEpisode(item, d) : null;
   const air = useTvmaze(tv && title && ready ? { tmdbId, title, year, imdb: d?.imdb || "", tvdb: d?.tvdb || 0 } : null,
     nextUp ? { s: nextUp.season, e: nextUp.episode } : null);
+  // Wikidata, once TMDB's details are in (they carry the IMDb id, a
+  // second way to find it), or straight away without a key.
+  const wiki = useWikidata(tmdbId && ready ? { kind, tmdbId, imdb: d?.imdb || "" } : null);
+  const trakt = useTraktStats(kind, tmdbId);
   const remove = () => { onDelete(item.id); close(); };
 
   return (
@@ -105,6 +110,8 @@ function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onCa
           </DetailSection>
         )}
 
+        <WhereToWatch d={d} region={region} />
+
         {tv && <AirSection m={air} mine={nextUp && { s: nextUp.season, e: nextUp.episode }} />}
 
         {(overview || d?.tagline) && (
@@ -114,6 +121,9 @@ function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onCa
             {d?.network && <div style={{ fontSize: 13, color: "var(--ink-faint)", marginTop: 8 }}>On {d.network}</div>}
           </DetailSection>
         )}
+
+        <WikidataSection w={wiki} />
+        <TraktSection s={trakt} />
 
         {item?.note && (
           <DetailSection title="Your Note">
@@ -137,9 +147,9 @@ function TitleSheet({ target, items, tmdbKey, onStatus, onAdvance, onPatch, onCa
           {item && <button type="button" onClick={remove} style={{ ...ghostBtn(), flex: 1, color: "var(--danger)" }}>Remove</button>}
         </div>
         <div style={{ fontSize: 11.5, color: "var(--ink-faint)", textAlign: "center", lineHeight: 1.4, padding: "14px 24px calc(22px + var(--safe-bottom))" }}>
-          {[tmdbId && "Details from TMDB", air?.id && (
+          {[tmdbId && "Details from TMDB", providersFor(d) && "Streaming data from JustWatch", air?.id && (
             <React.Fragment key="tvmaze">Schedule from <a href={air.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>TVmaze</a> (CC BY-SA)</React.Fragment>
-          )].filter(Boolean).flatMap((x, i) => (i ? [" · ", x] : [x]))}
+          ), wiki?.id && "Facts from Wikidata", trakt?.slug && "Stats from Trakt"].filter(Boolean).flatMap((x, i) => (i ? [" · ", x] : [x]))}
         </div>
       </div>
     </ModalFrame>
@@ -166,10 +176,11 @@ function infoCells(tv, d, top, date, year, loading) {
   return cells;
 }
 
-/* Fits a phone's width; scrolls sideways if a cell runs long. */
-function InfoStrip({ cells }) {
+/* Fits a phone's width; scrolls sideways if a cell runs long. `flat`
+   drops the rules above and below, for a strip inside a card. */
+function InfoStrip({ cells, flat }) {
   return (
-    <div className="tvt-strip" role="list" style={{ display: "flex", overflowX: "auto", margin: "20px 0 0", padding: "12px 4px", borderTop: "1px solid var(--line-soft)", borderBottom: "1px solid var(--line-soft)" }}>
+    <div className="tvt-strip" role="list" style={{ display: "flex", overflowX: "auto", margin: flat ? 0 : "20px 0 0", padding: "12px 4px", borderTop: flat ? "none" : "1px solid var(--line-soft)", borderBottom: flat ? "none" : "1px solid var(--line-soft)" }}>
       {cells.map((c, i) => (
         <div key={c.label} role="listitem" style={{ flex: "1 0 auto", textAlign: "center", padding: "0 8px", borderLeft: i ? "1px solid var(--line-soft)" : "none" }}>
           <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--ink-faint)", whiteSpace: "nowrap" }}>{c.label}</div>
@@ -202,6 +213,48 @@ function StatusTiles({ status, onPick }) {
         );
       })}
     </div>
+  );
+}
+
+/* Where to Watch: the services with it in your country (TMDB's data,
+   from JustWatch), by how you'd watch it, else the US's. Tapping a service
+   opens TMDB's page for the title, which links on to each one. */
+const PROVIDER_LABELS = { stream: "Stream", free: "Free", ads: "Free with ads", rent: "Rent", buy: "Buy" };
+function regionName(code) {
+  try { return new Intl.DisplayNames(["en-GB"], { type: "region" }).of(code) || code; } catch { return code; }
+}
+function WhereToWatch({ d, region }) {
+  const p = providersFor(d);
+  if (!p) return null;
+  const rows = Object.keys(PROVIDER_LABELS).filter((k) => p[k]);
+  return (
+    <DetailSection title="Where to Watch">
+      {p.region !== region && (
+        <div style={{ fontSize: 12.5, color: "var(--ink-dim)", lineHeight: 1.4, marginBottom: 10 }}>
+          JustWatch has nothing listed for {regionName(region)}, so this is {regionName(p.region)}. A VPN or a local service may differ.
+        </div>
+      )}
+      <div style={{ background: "var(--bg-2)", borderRadius: 16, padding: "2px 14px" }}>
+        {rows.map((k, i) => (
+          <div key={k} style={{ padding: "11px 0", borderTop: i ? "1px solid var(--line-soft)" : "none" }}>
+            <div className="label">{PROVIDER_LABELS[k]}</div>
+            <div className="tvt-strip" style={{ display: "flex", gap: 12, overflowX: "auto", marginTop: 8 }}>
+              {p[k].map(([id, name, logo]) => (
+                <a key={id} href={p.link || undefined} target="_blank" rel="noopener noreferrer" title={name} style={{ width: 60, flexShrink: 0, textAlign: "center", color: "inherit", textDecoration: "none" }}>
+                  <span style={{ display: "block", width: 48, height: 48, margin: "0 auto", borderRadius: 12, overflow: "hidden", background: "var(--bg-3)", boxShadow: "0 0 0 1px var(--line-soft)" }}>
+                    {logo && <img src={posterUrl(logo, "w92")} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+                  </span>
+                  <span className="tvt-clamp-2" style={{ fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.2, marginTop: 5 }}>{name}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 8 }}>
+        In {regionName(p.region)} · from JustWatch{p.link && <> · <a href={p.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>All options</a></>}
+      </div>
+    </DetailSection>
   );
 }
 
@@ -300,4 +353,4 @@ function Overview({ text }) {
   );
 }
 
-Object.assign(window, { findInLibrary, TitleSheet, EpisodePicker });
+Object.assign(window, { findInLibrary, TitleSheet, EpisodePicker, InfoStrip, DetailSection, regionName });

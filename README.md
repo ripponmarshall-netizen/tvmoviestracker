@@ -6,7 +6,7 @@
 - **Explore**: what's trending and popular on TMDB, for shows, movies or both, with search.
 - **Profile**: your username and picture (Edit Profile), with a small green tick beside the name once synced (tap it for details), library counts, total watch time split by shows and movies, top genres, awards for milestones, your library's lists (each with search and a sort dropdown), Settings and CSV import.
 
-Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, a show's schedule from TVmaze (your next episode by name, the next to air in your time zone, the latest out, and its days and channel), and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations and sheets you can pull down to close. The loading screen is a strip of film (its frames your own posters) rolling up the screen; once the app is ready it whooshes off the top, the logo and name glide into the header and the page rises in behind it.
+Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, *Where to Watch* (the services with it in your country, from JustWatch), a show's schedule from TVmaze (your next episode by name, the next to air in your time zone, the latest out, and its days and channel), *Did You Know* from Wikidata (awards, box office against budget, what it's based on, who made it, where it was filmed and set, its series), *On Trakt* (Trakt's rating, watchers and plays) and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations and sheets you can pull down to close. The loading screen is a strip of film (its frames your own posters) rolling up the screen; once the app is ready it whooshes off the top, the logo and name glide into the header and the page rises in behind it.
 
 There's no build step. React and Babel load from a CDN, and the `.jsx` files are compiled in the browser, so you can edit any file on GitHub (even from a phone) and the change is live once Pages redeploys.
 
@@ -29,6 +29,22 @@ Nothing to set up: [TVmaze](https://www.tvmaze.com/api) is free and needs no key
 
 The key is stored on the device and, once you're signed in, in your profile, so other devices pick it up. It never goes in the repo.
 
+### Where to Watch (JustWatch)
+
+JustWatch has no public API, so the data comes the licensed way: TMDB's `/watch/providers`, which is JustWatch's, in the same request as the title's details (so it needs the TMDB key). **Settings → Where to Watch** picks the country; it starts as Jamaica on a phone set to Jamaica's time zone. Where JustWatch lists nothing for your country, the sheet says so and shows the US. Tapping a service opens TMDB's page for the title, which links on to each one.
+
+### Did You Know (Wikidata)
+
+Nothing to set up: [Wikidata](https://www.wikidata.org) is free and needs no key. A title is found by its TMDB id (or IMDb id) with one SPARQL query to `query.wikidata.org`, only when its sheet opens. Money is shown only where Wikidata has it in US dollars. Its data is CC0.
+
+### Trakt
+
+1. Make a free API app at [trakt.tv → Your API Apps](https://trakt.tv/oauth/applications/new). Redirect URI: `urn:ietf:wg:oauth:2.0:oob`. JavaScript (CORS) origins: your Pages address, e.g. `https://<your-user>.github.io` (without it, the browser is refused).
+2. **Settings → Trakt**: paste its *Client ID*. That's enough for *On Trakt* on the title sheet.
+3. To bring in your history, paste the *Client Secret* too and tap **Connect Trakt Account**: the app shows a code to enter at trakt.tv/activate. Then **Import from Trakt**.
+
+The import goes through the same merge as a CSV import (below): each show moves to the last episode you watched on Trakt (episodes before a progress reset don't count), with when you watched it, so Up Next and On Hold are right; watched movies go to Watched, your watchlist to the Watchlist, and ratings out of 10 become stars. Nothing goes back a step and Undo puts it all back. The Client ID, secret and sign-in stay on the device (`tvt:trakt:v1`); Trakt's sign-in now lasts a day and renews itself.
+
 ### Sign-in and sync (Supabase)
 
 This repo already points at its Supabase project, with the schema applied, so only steps 2 and 3 are left to do. For a fresh project, do all four.
@@ -47,7 +63,9 @@ Then **Settings → Account → Sign in**. Sign-in uses a password rather than a
 | `index.html` | Theme applied before first paint, the film-strip loading screen and its hand-off into the header, script tags. If a script fails, the error appears on the loading screen. |
 | `styles.css` | Colour tokens (dark and light), spring easings, and every animation. |
 | `components.jsx` | Shared building blocks: `Card`, `SegToggle`, button styles, `ScreenTitle`, `SectionHeader`, `ProgressBar`, `ModalFrame` (sheets and dialogs), `showMenu` (action sheets), `FoldSection` and `useFold` (fold-away sections), `Picker` (a dropdown), `PullToRefresh`, `showToast`, `askConfirm`, `AnimatedRow`, `Collapse`, icons. |
-| `tmdb.jsx` | TMDB search, image URLs, title details (cached on the device), the Explore lists, and the episode maths (`nextEpisode`, `episodesWatched`, `airedEpisodes`, `latestAired`). |
+| `tmdb.jsx` | TMDB search, image URLs, title details (cached on the device) with where to watch them (`providersFor`, `setWatchRegion`), the Explore lists, and the episode maths (`nextEpisode`, `episodesWatched`, `airedEpisodes`, `latestAired`). |
+| `wikidata.jsx` | Wikidata: the SPARQL query (`wikidataQuery`), the facts it keeps (`compactWikidata`, cached on the device), `useWikidata`, and the title sheet's Did You Know section (`WikidataSection`). |
+| `trakt.jsx` | Trakt: settings and device sign-in (`traktDeviceCode`, `traktWaitForSignIn`, token refresh), community stats (`useTraktStats`, `TraktSection`), your history as import records (`fetchTraktLibrary`), and the Settings panel (`TraktSettings`). |
 | `tvmaze.jsx` | TVmaze: finding a show (`findTvmazeId`), its next and latest episodes and schedule (cached on the device), episode names (`useTvmaze`), and the title sheet's Schedule section (`AirSection`). |
 | `cloud.jsx` | Supabase config, sign-in, the profile (TMDB key, username, profile picture) and sync. |
 | `detail.jsx` | The title sheet (`TitleSheet`): artwork, the facts strip, status tiles, progress (with `EpisodePicker`, the season and episode dropdowns), rating, more like this. |
@@ -69,6 +87,8 @@ Everything is saved on the device first, in `localStorage` under `tvt:v1`, so th
 | `tvt:lists:v1` | Explore's lists | After half an hour |
 | `tvt:recs:v1` | "More like this" for the 60 titles you opened last | With the title's details |
 | `tvt:tvmaze:v1` | TVmaze schedules for the 300 shows opened last | After 12 hours, or once the next episode has aired |
+| `tvt:wikidata:v1` | Wikidata facts for the 300 titles opened last | After 30 days (a week for one Wikidata hasn't got) |
+| `tvt:traktstats:v1` | Trakt's numbers for the 300 titles opened last | After 3 days |
 | `tvt-img-v1` (service worker cache) | Posters and stills (the latest 600) | Never: TMDB image files don't change |
 
 They're only caches: each is dropped first if storage runs short. Pulling down to refresh fetches the lists and titles on screen, and the shows you're watching, straight away.
@@ -81,7 +101,7 @@ They're only caches: each is dropped first if storage runs short. Pulling down t
 
 For each file you say what it holds (it guesses from the file name), which decides where titles go when the file has no status column: *Ratings* and *Watched* into Watched, *Library* and *List* into the Watchlist. With *Library*, *List* or *Watched*, a show with episodes watched goes to Watching instead. A watch history with a row per episode becomes one title at the last episode watched. Under each file the sheet lists the columns it read, and above the Import button where the titles will land, so a status or episode column it didn't recognise shows up before anything changes.
 
-Imports merge: titles already in your library (matched by TMDB id, else by name and year) get the file's rating and progress, and move further along but never back (Watchlist → Watching → Watched); a show in your Watchlist that the file gives episode progress moves to Watching. So importing a file again, with the right columns, puts titles where they belong. Nothing is removed, and Undo puts everything back. Ratings out of 10 or 100 become stars, to the nearest half; half stars (Letterboxd's) are kept. Afterwards, with a TMDB key, titles without a TMDB id are matched on TMDB (by IMDb id, else by name and year) for posters, runtimes and Up Next; a title it can't match confidently is left as it is. A lost connection is retried; if the match is cut off (the app closed, or the phone slept), titles with a TMDB id but no poster are filled in the next time the app opens.
+Imports merge: titles already in your library (matched by TMDB id, else by name and year) get the file's rating and progress (and, for a show that had no episode ticked, the file's watch date as when you last watched it), and move further along but never back (Watchlist → Watching → Watched); a show in your Watchlist that the file gives episode progress moves to Watching. So importing a file again, with the right columns, puts titles where they belong. Nothing is removed, and Undo puts everything back. Ratings out of 10 or 100 become stars, to the nearest half; half stars (Letterboxd's) are kept. Afterwards, with a TMDB key, titles without a TMDB id are matched on TMDB (by IMDb id, else by name and year) for posters, runtimes and Up Next; a title it can't match confidently is left as it is. A lost connection is retried; if the match is cut off (the app closed, or the phone slept), titles with a TMDB id but no poster are filled in the next time the app opens.
 
 Signed in, each title is also a row in `tvt_items`, with the whole item in a `data` column. Devices sync when you sign in, when the app comes back to the foreground or back online, and a moment after each change. They merge title by title, and the newer edit wins. A delete leaves a tombstone row (`deleted = true`) so the other devices drop the title too. Undo and Import count as fresh edits, so they win over what they replace.
 
@@ -118,6 +138,8 @@ A watched movie counts its TMDB runtime. A show counts the episodes up to your p
 - **A new tab**: add it to `TABS` in `app.jsx` and a branch where `App` picks the screen.
 - **A new award**: add an entry to `BADGES` in `profile.jsx`, with the stat it reads (`of`) and its `goal`.
 - **A new data source or library**: credit it in `CREDITS` or `OPEN_SOURCE` in `app.jsx`.
+- **Another Wikidata fact**: add `["key", "P-number"]` to `WD_FACTS` in `wikidata.jsx` and a line for it in `wikidataFacts`.
+- **Another country for Where to Watch**: add its code to `REGIONS` in `app.jsx`.
 - **A new Explore shelf**: add a row to `EXPLORE` in `browse.jsx` with any TMDB list path (e.g. `/discover/tv?with_networks=213`).
 - **A CSV column the import doesn't know**: add its header (lower-case, letters and digits only) to the right field in `CSV_HEADS` in `importcsv.jsx`.
 - **A new one-tap button on a row**: add a case to `quickAction`. If it moves the title to another tab, the row folds away and an Undo toast appears automatically.

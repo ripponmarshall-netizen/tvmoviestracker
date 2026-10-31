@@ -2,7 +2,7 @@
    and the tab bar */
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.8.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -31,6 +31,10 @@ const FILTERS = [
   { v: "tv", l: "Shows" },
   { v: "movie", l: "Movies" },
 ];
+// Countries for Where to Watch (JustWatch's data, via TMDB), Jamaica and
+// its neighbours first. Any two-letter code works; these are the picks.
+const REGIONS = ["JM", "TT", "BB", "BS", "KY", "DO", "US", "CA", "GB", "IE", "AU", "NZ", "IN", "NG", "ZA", "DE", "FR", "ES", "MX", "BR"];
+
 const THEMES = [
   { v: "auto", l: "Auto" },
   { v: "light", l: "Light" },
@@ -118,6 +122,7 @@ function loadState() {
     filter: pick(s.filter, FILTERS, "all"),
     explore: pick(s.explore, FILTERS, "all"),
     tmdbKey: typeof s.tmdbKey === "string" ? s.tmdbKey : "",
+    region: /^[A-Z]{2}$/.test(s.region || "") ? s.region : guessRegion(),
     avatar: cleanAvatar(s.avatar),
     username: cleanUsername(s.username),
   };
@@ -160,6 +165,9 @@ function App() {
   const [explore, setExplore] = useState(initial.explore);
   const [query, setQuery] = useState(""); // Explore's search
   const [tmdbKey, setTmdbKey] = useState(initial.tmdbKey);
+  const [region, setRegion] = useState(initial.region); // for Where to Watch
+  // Read when TMDB's details are fetched; setting it again is harmless.
+  setWatchRegion(region);
   const [avatar, setAvatar] = useState(initial.avatar); // profile picture, as a data: URL
   const [username, setUsername] = useState(initial.username);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -188,7 +196,7 @@ function App() {
   // The app is on screen: hand the loading screen over to the header logo.
   useEffect(() => { window.tvtSplashDone?.(); }, []);
 
-  useEffect(() => { saveState({ items, theme, tab, filter, explore, tmdbKey, avatar, username }); }, [items, theme, tab, filter, explore, tmdbKey, avatar, username]);
+  useEffect(() => { saveState({ items, theme, tab, filter, explore, tmdbKey, region, avatar, username }); }, [items, theme, tab, filter, explore, tmdbKey, region, avatar, username]);
 
   useEffect(() => {
     const mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
@@ -397,12 +405,12 @@ function App() {
     showToast(message, { action: { label: "Undo", onClick: () => updateItems(() => prev.map(touch)) } });
   };
 
-  // CSV import: merged in with Undo, then titles without TMDB details are
+  // CSV and Trakt imports: merged in with Undo, then titles without TMDB details are
   // matched there in the background. A match for a title already in the
   // library under another name is left out rather than make a duplicate.
   // Shows the file said you're up to date with are caught up once they're
   // linked (catchUp needs TMDB's episode list), after the other toasts.
-  const importCsv = (plan) => {
+  const importPlan = (plan) => {
     replaceAll(plan.items, `Imported ${plural(plan.added + plan.updated, "title")}`);
     const started = Date.now();
     const later = (fn) => setTimeout(fn, Math.max(0, 6500 - (Date.now() - started)));
@@ -458,7 +466,7 @@ function App() {
   } else {
     screen = (
       <WatchingView key="watching" items={items} tmdbKey={tmdbKey} onOpenItem={openItem} onOpenTile={openTile}
-        onAdvance={advance} onSeeAll={setList} onExplore={() => go("explore")} onMore={itemMenu} onBulk={bulkMenu} />
+        onAdvance={advance} onSeeAll={setList} onExplore={() => go("explore")} onMore={itemMenu} onBulk={bulkMenu} onSettings={openSettings} />
     );
   }
 
@@ -476,6 +484,7 @@ function App() {
           target={detail}
           items={items}
           tmdbKey={tmdbKey}
+          region={region}
           onStatus={(t, status) => {
             const item = findInLibrary(itemsRef.current, t);
             if (item) moveTo(item.id, status);
@@ -505,6 +514,8 @@ function App() {
           setTheme={setTheme}
           tmdbKey={tmdbKey}
           setTmdbKey={setTmdbKey}
+          region={region}
+          setRegion={setRegion}
           avatar={avatar}
           username={username}
           onEditProfile={() => setProfileOpen(true)}
@@ -515,11 +526,12 @@ function App() {
           // versions elsewhere: the backup is what you asked for.
           onImport={(list) => replaceAll(list.map(touch), `Imported ${plural(list.length, "title")}`)}
           onImportCsv={() => setCsvOpen(true)}
+          onImportPlan={importPlan}
           onErase={() => replaceAll([], "Everything erased")}
           onClose={() => setSettingsOpen(false)}
         />
       )}
-      {csvOpen && <CsvImportSheet items={items} tmdbKey={tmdbKey} onImport={importCsv} onClose={() => setCsvOpen(false)} />}
+      {csvOpen && <CsvImportSheet items={items} tmdbKey={tmdbKey} onImport={importPlan} onClose={() => setCsvOpen(false)} />}
       {profileOpen && (
         <ProfileSheet username={username} setUsername={setUsername} avatar={avatar} setAvatar={setAvatar}
           email={session?.user?.email} signedIn={!!session} onClose={() => setProfileOpen(false)} />
@@ -928,7 +940,7 @@ function RatingInput({ value, onChange }) {
 }
 
 /* ============ Settings ============ */
-function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, username, onEditProfile, session, sync, items, onImport, onImportCsv, onErase, onClose }) {
+function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion, avatar, username, onEditProfile, session, sync, items, onImport, onImportCsv, onImportPlan, onErase, onClose }) {
   const { ref, closing, close } = useModalDismiss(onClose);
   const fileRef = useRef(null);
   const [testing, setTesting] = useState(false);
@@ -993,6 +1005,8 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, username,
   };
 
   const email = session?.user?.email || "";
+  const trakt = useTraktSettings();
+  const regionOpts = [...new Set([region, ...REGIONS])].map((c) => ({ v: c, l: `${regionName(c)} (${c})`, short: regionName(c) }));
   return (
     <ModalFrame sheet dismiss={{ ref, closing, close }} label="Settings">
       <ModalHead title="Settings" onClose={close} />
@@ -1026,6 +1040,15 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, username,
           <button type="button" onClick={testKey} disabled={!tmdbKey || testing} style={{ ...ghostBtn(), opacity: tmdbKey ? 1 : 0.4 }}>{testing ? "Testing…" : "Test"}</button>
         </div>
       </SettingsGroup>
+      <SettingsGroup id="region" icon={<PlayIcon size={17} />} tint="#ff9f0a" title="Where to Watch" summary={regionName(region)}>
+        <div style={note}>
+          The country whose streaming services the title sheet lists, from JustWatch (through TMDB, so it needs the TMDB key). Where JustWatch has nothing for it, the sheet shows the US.
+        </div>
+        <Picker label="Country" value={region} options={regionOpts} onChange={(v) => setRegion(String(v))} />
+      </SettingsGroup>
+      <SettingsGroup id="trakt" icon={<ActivityIcon size={17} />} tint="#ed1c24" title="Trakt" summary={trakt.token?.access ? "Connected" : trakt.id ? "Client ID added" : "Not set up"}>
+        <TraktSettings items={items} onImport={(plan) => { onImportPlan(plan); close(); }} />
+      </SettingsGroup>
       <SettingsGroup id="backup" icon={<ArchiveIcon size={17} />} tint="#8e8e93" title="Backup & Import" summary={plural(items.length, "title")}>
         <div style={note}>
           {signedIn
@@ -1046,7 +1069,7 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, username,
         <div style={note}>Removes every title{signedIn ? ", here and in your account" : ""}. Your settings stay.</div>
         <button type="button" onClick={erase} disabled={!items.length} style={{ ...ghostBtn(), color: "var(--danger)", opacity: items.length ? 1 : 0.4 }}>Erase Everything</button>
       </SettingsGroup>
-      <SettingsGroup id="credits" icon={<InfoIcon size={17} />} tint="#5e5ce6" title="About & Credits" summary="TMDB · TVmaze">
+      <SettingsGroup id="credits" icon={<InfoIcon size={17} />} tint="#5e5ce6" title="About & Credits" summary="TMDB · TVmaze · Wikidata">
         <Credits />
       </SettingsGroup>
       <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 14 }}>
@@ -1054,7 +1077,7 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, avatar, username,
       </div>
       {/* TMDB's terms ask apps using its API to say this where it can be seen. */}
       <div style={{ fontSize: 11.5, color: "var(--ink-faint)", marginTop: 6, lineHeight: 1.4 }}>
-        This product uses the TMDB API but is not endorsed or certified by TMDB. Schedules from TVmaze, under CC BY-SA 4.0.
+        This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming data from JustWatch. Schedules from TVmaze, under CC BY-SA 4.0. Facts from Wikidata (CC0).
       </div>
     </ModalFrame>
   );
@@ -1074,6 +1097,23 @@ const CREDITS = [
     what: "Air times, episode names and synopses, and schedules on the title sheet.",
     terms: "TVmaze data is licensed under CC BY-SA 4.0.",
     links: [["Licence", "https://creativecommons.org/licenses/by-sa/4.0/"], ["API", "https://www.tvmaze.com/api"]],
+  },
+  {
+    name: "JustWatch", href: "https://www.justwatch.com",
+    what: "Where to watch each title in your country, through TMDB's streaming data.",
+    terms: "Streaming data from JustWatch. JustWatch has no public API; TMDB licenses its data.",
+  },
+  {
+    name: "Wikidata", href: "https://www.wikidata.org",
+    what: "Did You Know: awards, box office and budget, what it's based on, who made it, where it was filmed and set, and its series.",
+    terms: "Wikidata's data is in the public domain (CC0).",
+    links: [["Licence", "https://creativecommons.org/publicdomain/zero/1.0/"], ["Query service", "https://query.wikidata.org"]],
+  },
+  {
+    name: "Trakt", href: "https://trakt.tv",
+    what: "Community ratings and watch counts, and importing your Trakt history, watchlist and ratings.",
+    terms: "Uses the Trakt API with your own API app. Not endorsed by Trakt.",
+    links: [["API", "https://trakt.docs.apiary.io"], ["Terms", "https://trakt.tv/terms"]],
   },
   {
     name: "Supabase", href: "https://supabase.com",
