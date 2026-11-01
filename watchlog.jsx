@@ -117,7 +117,8 @@ const newWatches = (entries) => entries.filter(({ key, at }) => !(watchLog[key] 
    later episode logs that episode; a movie moved to Watched logs the
    movie. Now, by the device's clock. */
 function logWatchStep(before, after) {
-  if (!before || !after) return;
+  // Books aren't in the watch history (it's shows and movies only).
+  if (!before || !after || after.kind === "book") return;
   if (after.kind === "tv") {
     const on = after.season * 10000 + after.episode > before.season * 10000 + before.episode;
     if (on && after.episode > 0) logWatches([{ key: watchKey(after, after.season, after.episode), at: nowIso() }], { live: true });

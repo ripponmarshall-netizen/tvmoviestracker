@@ -976,6 +976,10 @@ function InfoIcon({ size }) {
 function AnimeIcon({ size }) {
   return <Svg size={size}><path d="M12 3.5l1.9 5.2 5.6 1.8-5.6 1.9L12 17.6l-1.9-5.2-5.6-1.9 5.6-1.8z" /><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" /></Svg>;
 }
+/* An open book. */
+function BookIcon({ size }) {
+  return <Svg size={size}><path d="M12 6.8C10.2 5.5 7.7 4.8 4.5 4.8v12.8c3.2 0 5.7.7 7.5 2 1.8-1.3 4.3-2 7.5-2V4.8c-3.2 0-5.7.7-7.5 2z" /><path d="M12 6.8v12.8" /></Svg>;
+}
 function ArchiveIcon({ size }) {
   return <Svg size={size}><rect x="3.5" y="4.5" width="17" height="4.5" rx="1" /><path d="M5 9v10.5h14V9M10 13h4" /></Svg>;
 }
@@ -988,5 +992,5 @@ Object.assign(window, {
   ModalFrame, ModalHead, springTo, useModalDismiss, PullToRefresh, downloadBlob, useLongPress,
   XIcon, PlusIcon, MinusIcon, GearIcon, PlayIcon, BookmarkIcon, CheckCircleIcon, StarIcon,
   CompassIcon, PersonIcon, CameraIcon, SearchIcon, CheckIcon, ChevronIcon, ActivityIcon, MoreIcon,
-  TvIcon, FilmIcon, TrashIcon, PencilIcon, ForwardIcon, UploadIcon, PaletteIcon, KeyIcon, CloudIcon, ArchiveIcon, InfoIcon, AnimeIcon,
+  TvIcon, FilmIcon, TrashIcon, PencilIcon, ForwardIcon, UploadIcon, PaletteIcon, KeyIcon, CloudIcon, ArchiveIcon, InfoIcon, AnimeIcon, BookIcon,
 });
