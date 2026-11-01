@@ -265,18 +265,75 @@ function combineRecs(recs) {
   return out;
 }
 
-/* readCsvFile — a picked file, ready for the import sheet. */
-async function readCsvFile(file) {
-  const f = { id: newId(), name: file.name, role: "library", recs: [], skipped: 0, error: "" };
-  if (file.size > 20e6) return { ...f, error: "Too big to import (over 20 MB)" };
+/* readCsvText — a file's text, ready for the import sheet. `role` is the
+   one it was last imported as, else guessed from its name. The text is
+   kept so the file can be saved to Recent Files once imported. */
+function readCsvText(name, text, role) {
+  const f = { id: newId(), name, role: "library", recs: [], skipped: 0, error: "", text };
   try {
-    const parsed = csvRecords(parseCsv(await file.text()));
+    const parsed = csvRecords(parseCsv(text));
     if (!parsed) return { ...f, error: "No Title or Name column found" };
-    return { ...f, ...parsed, role: guessRole(file.name) };
+    return { ...f, ...parsed, role: role || guessRole(name) };
   } catch {
     return { ...f, error: "Couldn't read this file" };
   }
 }
+/* readCsvFile — a picked file, ready for the import sheet. */
+async function readCsvFile(file) {
+  if (file.size > 20e6) return { id: newId(), name: file.name, role: "library", recs: [], skipped: 0, error: "Too big to import (over 20 MB)" };
+  try {
+    return readCsvText(file.name, await file.text());
+  } catch {
+    return { id: newId(), name: file.name, role: "library", recs: [], skipped: 0, error: "Couldn't read this file" };
+  }
+}
+
+/* Recent Files — the CSV files you've imported, kept on this device
+   (IndexedDB, as they can run to megabytes) so one can be read again
+   without picking it: after an update reads more from it (episode
+   progress, a column it didn't know), or to retry matching on TMDB.
+   One entry per file name, newest first; the oldest go past
+   RECENT_CSV_MAX. Any storage failure (private browsing, quota) just
+   means no Recent Files. */
+const RECENT_CSV_MAX = 8;
+function recentCsvStore(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open("tvt-csv", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("files", { keyPath: "name" });
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction("files", mode);
+      const req = fn(tx.objectStore("files"));
+      tx.oncomplete = () => { db.close(); resolve(req?.result); };
+      tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+    };
+  });
+}
+async function loadRecentCsv() {
+  try {
+    const all = (await recentCsvStore("readonly", (s) => s.getAll())) || [];
+    return all.sort((a, b) => b.saved.localeCompare(a.saved));
+  } catch {
+    return [];
+  }
+}
+async function saveRecentCsv(files) {
+  try {
+    const saved = nowIso();
+    const keep = files.filter((f) => !f.error && f.text).slice(0, RECENT_CSV_MAX);
+    if (!keep.length) return;
+    const old = (await loadRecentCsv()).filter((r) => !keep.some((f) => f.name === r.name)).slice(Math.max(0, RECENT_CSV_MAX - keep.length));
+    await recentCsvStore("readwrite", (s) => {
+      for (const f of keep) s.put({ name: f.name, text: f.text, role: f.role, size: f.text.length, saved });
+      for (const r of old) s.delete(r.name);
+    });
+  } catch {}
+}
+async function forgetRecentCsv(name) {
+  try { await recentCsvStore("readwrite", (s) => s.delete(name)); } catch {}
+}
+const fmtSize = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
 function guessRole(name) {
   const n = name.toLowerCase();
   if (/rating|rated|score/.test(n)) return "ratings";
@@ -366,7 +423,10 @@ function planImport(files, items) {
     }
   }
 
-  const toLink = [...added, ...changes.values()].filter((i) => !i.tmdbId || !i.poster).map((i) => {
+  // Titles the file matched but left as they were still get another go on
+  // TMDB if they lack a poster, so reading a file again can fill them in.
+  const unchanged = recs.map(find).filter((i) => i && !changes.has(i.id));
+  const toLink = [...new Map([...added, ...changes.values(), ...unchanged].map((i) => [i.id, i])).values()].filter((i) => !i.tmdbId || !i.poster).map((i) => {
     const x = source.get(i.id);
     return { id: i.id, title: i.title, year: i.year, tmdbId: i.tmdbId, kind: x && !x.kind ? null : i.kind, imdbId: x?.imdbId || "" };
   });
@@ -524,7 +584,16 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
   const fileRef = useRefI(null);
   const [files, setFiles] = useStateI([]);
   const [reading, setReading] = useStateI(false);
+  const [recent, setRecent] = useStateI([]);
+  useEffectI(() => { loadRecentCsv().then(setRecent); }, []);
   const plan = useMemoI(() => (files.some((f) => !f.error) ? planImport(files, items) : null), [files, items]);
+  // Recent files not already in this import.
+  const shelf = recent.filter((r) => !files.some((f) => f.name === r.name));
+  const readAgain = (r) => setFiles((fs) => [...fs, readCsvText(r.name, r.text, r.role)]);
+  const forget = (name) => {
+    setRecent((rs) => rs.filter((r) => r.name !== name));
+    forgetRecentCsv(name);
+  };
   const note = { fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.5 };
 
   const pick = async (e) => {
@@ -538,13 +607,17 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
   };
   const setRole = (id, role) => setFiles((fs) => fs.map((f) => (f.id === id ? { ...f, role } : f)));
   const drop = (id) => setFiles((fs) => fs.filter((f) => f.id !== id));
+  const count = plan ? plan.added + plan.updated : 0;
+  const unlinked = plan ? plan.toLink.length : 0;
+  // A file read again can have nothing new to merge but titles to match on
+  // TMDB or catch up, which is still worth running.
+  const extra = plan && tmdbKey ? new Set([...plan.toLink.map((t) => t.id), ...plan.caughtUp]).size : 0;
   const go = () => {
-    if (!plan || closing) return;
+    if (!plan || closing || !(count || extra)) return;
+    saveRecentCsv(files);
     onImport(plan);
     close();
   };
-  const count = plan ? plan.added + plan.updated : 0;
-  const unlinked = plan ? plan.toLink.length : 0;
   const into = plan && Object.entries(plan.into).filter(([, n]) => n).map(([s, n]) => `${statusLabel(s)} ${n}`).join(", ");
 
   return (
@@ -591,6 +664,27 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
         {reading ? "Reading…" : files.length ? "Add Another File" : "Choose CSV Files"}
       </button>
       <input ref={fileRef} type="file" accept=".csv,text/csv,text/comma-separated-values,text/plain" multiple onChange={pick} hidden />
+      {shelf.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-dim)", margin: "0 4px 6px" }}>Recent Files</div>
+          <div style={{ ...note, fontSize: 12.5, margin: "0 4px 8px" }}>
+            Read one again to bring in anything this version of the app understands that it didn't before, and to retry
+            matching titles without a poster. Kept on this device only.
+          </div>
+          {shelf.map((r) => (
+            <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-2)", borderRadius: 14, padding: "8px 8px 8px 12px", marginBottom: 6 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 1 }}>
+                  {[CSV_ROLES.find((x) => x.v === r.role)?.l, fmtSize(r.size), `imported ${fmtAgo(Date.parse(r.saved))}`].filter(Boolean).join(" · ")}
+                </div>
+              </div>
+              <button type="button" onClick={() => readAgain(r)} style={{ ...ghostBtn(), padding: "7px 12px", fontSize: 13.5 }}>Read Again</button>
+              <button type="button" onClick={() => forget(r.name)} aria-label={`Forget ${r.name}`} style={{ ...iconBtn(32), color: "var(--ink-dim)" }}><XIcon size={10} /></button>
+            </div>
+          ))}
+        </div>
+      )}
       {plan && (
         <div className="tvt-pop" style={{ ...note, marginTop: 14 }}>
           <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>{plan.added}</span> new ·{" "}
@@ -605,8 +699,8 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
       )}
       <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
         <button type="button" onClick={close} style={ghostBtn()}>Cancel</button>
-        <button type="button" onClick={go} disabled={!count} style={{ ...accentBtn(), opacity: count ? 1 : 0.4, cursor: count ? "pointer" : "default" }}>
-          {count ? `Import ${plural(count, "title")}` : "Import"}
+        <button type="button" onClick={go} disabled={!(count || extra)} style={{ ...accentBtn(), opacity: count || extra ? 1 : 0.4, cursor: count || extra ? "pointer" : "default" }}>
+          {count ? `Import ${plural(count, "title")}` : extra ? `Update ${plural(extra, "title")}` : "Import"}
         </button>
       </div>
     </ModalFrame>

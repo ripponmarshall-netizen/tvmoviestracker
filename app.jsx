@@ -412,7 +412,10 @@ function App() {
   // Shows the file said you're up to date with are caught up once they're
   // linked (catchUp needs TMDB's episode list), after the other toasts.
   const importPlan = (plan) => {
-    replaceAll(plan.items, `Imported ${plural(plan.added + plan.updated, "title")}`);
+    const n = plan.added + plan.updated;
+    // A file read again may change nothing itself, only start matching.
+    if (n) replaceAll(plan.items, `Imported ${plural(n, "title")}`);
+    else showToast(plan.toLink.length ? `Matching ${plural(plan.toLink.length, "title")} on TMDB…` : "Catching up shows…");
     const started = Date.now();
     const later = (fn) => setTimeout(fn, Math.max(0, 6500 - (Date.now() - started)));
     const thenCatchUp = () => { if (tmdbKey && plan.caughtUp.length) later(() => catchUp(plan.caughtUp, { quiet: true })); };
