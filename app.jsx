@@ -107,8 +107,10 @@ const touch = (item) => ({ ...item, updated: nowIso() });
    as watching it, which keeps it in Up Next rather than the archive. A
    rating or a note doesn't. */
 const progressRank = (i) => (i.kind === "tv" ? i.season * 10000 + i.episode : 0);
-function stampWatch(before, after) {
+function stampWatch(before, after, { log = true } = {}) {
   if (!before) return after;
+  // The episode or movie goes into the Activity history (watchlog.jsx).
+  if (log) logWatchStep(before, after);
   const on = progressRank(after) > progressRank(before) || (after.status === "watching" && before.status !== "watching");
   return on ? { ...after, lastWatched: nowIso() } : after;
 }
@@ -312,7 +314,8 @@ function App() {
     updateItems((prev) => prev.map((i) => {
       if (!want.has(i.id) || i.status === status) return i;
       before.set(i.id, i);
-      return touch(stampWatch(i, { ...i, status }));
+      // A bulk move isn't a watch for the Activity history.
+      return touch(stampWatch(i, { ...i, status }, { log: false }));
     }));
     if (before.size) showToast(`Moved ${plural(before.size, "title")} to ${statusLabel(status)}`, { action: { label: "Undo", onClick: () => restore(before) } });
   };
@@ -413,9 +416,13 @@ function App() {
   // linked (catchUp needs TMDB's episode list), after the other toasts.
   const importPlan = (plan) => {
     const n = plan.added + plan.updated;
-    // A file read again may change nothing itself, only start matching.
+    const logged = plan.watchLog?.length ? logWatches(plan.watchLog) : 0;
+    // A file read again may change nothing itself, only start matching or
+    // fill in the Activity history.
     if (n) replaceAll(plan.items, `Imported ${plural(n, "title")}`);
-    else showToast(plan.toLink.length ? `Matching ${plural(plan.toLink.length, "title")} on TMDB…` : "Catching up shows…");
+    else if (plan.toLink.length && tmdbKey) showToast(`Matching ${plural(plan.toLink.length, "title")} on TMDB…`);
+    else if (plan.caughtUp.length && tmdbKey) showToast("Catching up shows…");
+    else if (logged) showToast(`Added ${logged.toLocaleString("en-GB")} watch${logged === 1 ? "" : "es"} to Activity`);
     const started = Date.now();
     const later = (fn) => setTimeout(fn, Math.max(0, 6500 - (Date.now() - started)));
     const thenCatchUp = () => { if (tmdbKey && plan.caughtUp.length) later(() => catchUp(plan.caughtUp, { quiet: true })); };
@@ -463,7 +470,7 @@ function App() {
   } else if (tab === "profile") {
     screen = (
       <ProfileView key="profile" items={items} tmdbKey={tmdbKey} session={session} sync={sync} avatar={avatar} setAvatar={setAvatar}
-        username={username} onEditProfile={() => setProfileOpen(true)} onOpenList={setList} onSettings={openSettings} onImportCsv={() => setCsvOpen(true)} />
+        username={username} onEditProfile={() => setProfileOpen(true)} onOpenList={setList} onSettings={openSettings} onImportCsv={() => setCsvOpen(true)} onOpenItem={openItem} />
     );
   } else {
     screen = (

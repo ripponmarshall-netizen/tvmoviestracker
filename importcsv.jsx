@@ -167,6 +167,9 @@ function csvRecords(rows) {
   const at = (r, f) => (cols[f] == null ? "" : String(r[cols[f]] ?? "").trim());
   const showTitles = SHOW_TITLE_HEADS.includes(heads[cols.title]);
   const letterboxd = heads.includes("letterboxduri");
+  // A date column that says when you watched (not added or rated): each
+  // row is then a watch, for Profile's Activity history.
+  const watchDates = cols.added != null && /watch|seen|view|play/.test(heads[cols.added]);
 
   const recs = [];
   let skipped = 0;
@@ -207,6 +210,8 @@ function csvRecords(rows) {
       note: at(r, "note").slice(0, 2000),
       added: date,
       last: date,
+      // This row's watch: an episode of a show, or a movie.
+      watches: watchDates && date && (kind === "movie" || (season > 0 && episode > 0)) ? [{ s: season, e: episode, at: date }] : [],
     });
   }
 
@@ -236,6 +241,7 @@ function mergeRecs(a, b) {
     ...a,
     kind: a.kind || b.kind, tmdbId: a.tmdbId || b.tmdbId, imdbId: a.imdbId || b.imdbId, year: a.year || b.year,
     rating: b.rating || a.rating, status, weak, caughtUp: a.caughtUp || b.caughtUp,
+    watches: [...(a.watches || []), ...(b.watches || [])],
     season: ep.season, episode: ep.episode,
     note: a.note || b.note,
     added: [a.added, b.added].filter(Boolean).sort()[0] || "",
@@ -333,6 +339,8 @@ async function saveRecentCsv(files) {
 async function forgetRecentCsv(name) {
   try { await recentCsvStore("readwrite", (s) => s.delete(name)); } catch {}
 }
+/* 1 watch, 7,412 watches. */
+const fmtWatches = (n) => `${n.toLocaleString("en-GB")} watch${n === 1 ? "" : "es"}`;
 const fmtSize = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
 function guessRole(name) {
   const n = name.toLowerCase();
@@ -376,11 +384,15 @@ function planImport(files, items) {
 
   const changes = new Map();
   const fresh = [];
+  // Dated watches, for the Activity history, once each title's item is known.
+  const watchLog = [];
+  const logFor = (item, x) => { for (const w of x.watches || []) watchLog.push({ key: watchKey(item, w.s, w.e), at: w.at }); };
   const caughtUp = new Set(); // ids of shows the file says you're up to date with
   for (const x of recs) {
     const found = find(x);
     if (found && x.caughtUp && found.kind === "tv") caughtUp.add(found.id);
     const base = found && (changes.get(found.id) || found);
+    if (base) logFor(base, x);
     if (!base) {
       fresh.push(x);
       continue;
@@ -419,6 +431,7 @@ function planImport(files, items) {
     if (item) {
       added.push(item);
       source.set(item.id, x);
+      logFor(item, x);
       if (x.caughtUp && item.kind === "tv") caughtUp.add(item.id);
     }
   }
@@ -436,7 +449,7 @@ function planImport(files, items) {
   for (const i of [...added, ...changes.values()]) if (before.get(i.id) !== i.status) into[i.status]++;
   return {
     items: [...added, ...items.map((i) => changes.get(i.id) || i)],
-    added: added.length, updated: changes.size, same: recs.length - added.length - changes.size, toLink, into, caughtUp: [...caughtUp],
+    added: added.length, updated: changes.size, same: recs.length - added.length - changes.size, toLink, into, caughtUp: [...caughtUp], watchLog,
   };
 }
 
@@ -612,8 +625,11 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
   // A file read again can have nothing new to merge but titles to match on
   // TMDB or catch up, which is still worth running.
   const extra = plan && tmdbKey ? new Set([...plan.toLink.map((t) => t.id), ...plan.caughtUp]).size : 0;
+  // Dated watches the Activity history doesn't have yet.
+  const fresh = plan ? newWatches(plan.watchLog) : 0;
+  const any = count || extra || fresh;
   const go = () => {
-    if (!plan || closing || !(count || extra)) return;
+    if (!plan || closing || !any) return;
     saveRecentCsv(files);
     onImport(plan);
     close();
@@ -691,6 +707,7 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
           <span className="mono" style={{ color: "var(--ink)", fontWeight: 600 }}>{plan.updated}</span> updated ·{" "}
           <span className="mono">{plan.same}</span> already up to date.
           {into && <> Into {into}.</>}
+          {fresh > 0 && ` ${fmtWatches(fresh)} with dates go to your Activity charts on Profile.`}
           {plan.caughtUp.length > 0 && ` ${plural(plan.caughtUp.length, "show")} marked up to date will jump to the latest episode out${tmdbKey ? "" : " once you add a TMDB key"}.`}
           {unlinked > 0 && (tmdbKey
             ? ` ${plural(unlinked, "title")} will then be matched on TMDB for posters and episode details.`
@@ -699,8 +716,8 @@ function CsvImportSheet({ items, tmdbKey, onImport, onClose }) {
       )}
       <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
         <button type="button" onClick={close} style={ghostBtn()}>Cancel</button>
-        <button type="button" onClick={go} disabled={!(count || extra)} style={{ ...accentBtn(), opacity: count || extra ? 1 : 0.4, cursor: count || extra ? "pointer" : "default" }}>
-          {count ? `Import ${plural(count, "title")}` : extra ? `Update ${plural(extra, "title")}` : "Import"}
+        <button type="button" onClick={go} disabled={!any} style={{ ...accentBtn(), opacity: any ? 1 : 0.4, cursor: any ? "pointer" : "default" }}>
+          {count ? `Import ${plural(count, "title")}` : extra ? `Update ${plural(extra, "title")}` : fresh ? `Add ${fmtWatches(fresh)}` : "Import"}
         </button>
       </div>
     </ModalFrame>

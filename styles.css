@@ -21,6 +21,10 @@
   /* Kinds: shows blue, movies purple. */
   --tv: #0a84ff;
   --movie: #bf5af2;
+  /* Profile's charts: shows and movies told apart for colour-blind eyes
+     too (purple beside blue doesn't, on dark). */
+  --chart-tv: #0a84ff;
+  --chart-movie: #e5559f;
   --danger: #ff453a;
   --star: #ffd60a;
   --ok: #30d158;
@@ -214,6 +218,8 @@
   --accent-ink: #ffffff;
   --tv: #0071e3;
   --movie: #8944ab;
+  --chart-tv: #0071e3;
+  --chart-movie: #8944ab;
   --danger: #d70015;
   --star: #a35f00;
   --ok: #248a3d;
