@@ -170,6 +170,9 @@ function csvRecords(rows) {
   // A date column that says when you watched (not added or rated): each
   // row is then a watch, for Profile's Activity history.
   const watchDates = cols.added != null && /watch|seen|view|play/.test(heads[cols.added]);
+  // A first-watched date beside the last (TV Time's first_watched_at): a
+  // row watched more than once gives both, so the rewatch is logged too.
+  const firstCol = watchDates ? ["firstwatchedat", "firstwatched", "firstwatcheddate", "firstseenat"].map((h) => heads.indexOf(h)).find((i) => i >= 0 && i !== cols.added) : undefined;
 
   const recs = [];
   let skipped = 0;
@@ -211,7 +214,9 @@ function csvRecords(rows) {
       added: date,
       last: date,
       // This row's watch: an episode of a show, or a movie.
-      watches: watchDates && date && (kind === "movie" || (season > 0 && episode > 0)) ? [{ s: season, e: episode, at: date }] : [],
+      watches: watchDates && date && (kind === "movie" || (season > 0 && episode > 0))
+        ? [...new Set([date, firstCol != null ? csvDate(r[firstCol]) : ""].filter(Boolean))].map((d) => ({ s: season, e: episode, at: d }))
+        : [],
     });
   }
 

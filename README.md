@@ -118,19 +118,28 @@ Signed in, each title is also a row in `tvt_items`, with the whole item in a `da
   note,
   tmdbId, poster, year, // from TMDB search; null / "" for titles typed in
   added, updated,    // ISO dates; `updated` decides which edit wins a sync
-  lastWatched        // ISO date you last moved it on ("" = never); Up Next vs On Hold
+  lastWatched,       // ISO date you last moved it on ("" = never); Up Next vs On Hold
+  rewatch,           // { season, episode } while rewatching a show, else null
+  rewatches          // rewatches finished (a show through again, a movie again)
 }
 ```
 
 ### Activity (Profile)
 
-A title only keeps when you last watched it, so Activity has its own history (`watchlog.jsx`): one entry per episode or movie with when you watched it, kept on this device (IndexedDB `tvt-log`) and not synced. It fills from a CSV whose date column says when you watched (`watched_at`, `last_watched_at`, *Watched Date* and the like; an *added* or *rated* date doesn't count), such as TV Time's `watches.csv` or a Letterboxd diary, and from episodes you tick and movies you mark watched in the app. The same episode imported twice keeps its latest date, so reading a file again doesn't double it. Bulk moves from a section's ••• menu and *I'm Caught Up* aren't logged.
+A title only keeps when you last watched it, so Activity has its own history (`watchlog.jsx`): one entry per episode or movie with when you watched it, kept on this device (IndexedDB `tvt-log`) and not synced. It fills from a CSV whose date column says when you watched (`watched_at`, `last_watched_at`, *Watched Date* and the like; an *added* or *rated* date doesn't count), such as TV Time's `watches.csv` or a Letterboxd diary, and from episodes you tick and movies you mark watched in the app. A date already logged isn't added again, so reading a file twice doesn't double it. Bulk moves from a section's ••• menu and *I'm Caught Up* aren't logged.
 
 - **Calendar**: a heatmap of the last 26 weeks (‹ › for earlier), one cell a day, shaded by quartile of your busy days; tap a day for what you watched. Under it your busiest day, and above it your current and longest streaks.
 - **When You Watch**: by day of the week or hour of the day.
 - **Coming Up**: a month calendar of the next episode of each show you're watching and release dates of titles on your lists, from TMDB's cached details; tap a day for the titles.
 - **Your Eras**: the decades your shows and movies come from (not the Watchlist), stacked.
 - **Your Ratings**: how your stars spread, with your average.
+
+**Rewatches.** Each entry holds every time you watched it, so a rewatch is a second date, not a replacement. From a CSV, a first-watched date beside the last (TV Time's `first_watched_at`) logs both; plays beyond those two have no dates and aren't counted. In the app:
+
+- **Rewatch from the Start** (a show's ••• menu, once it has progress or is in Watched) puts it in Up Next as *Rewatching*, on its own counter (`rewatch` on the item). Each tick logs that episode again; your progress doesn't move. It ends after the last episode out (a show in Watched) or the one you'd got to, adding one to `rewatches`. **Stop Rewatching** ends it early.
+- **Watched It Again** (a watched movie's ••• menu) logs another viewing today, with Undo.
+
+A tick on an episode already logged in the last 6 hours (`CORRECTION_MIN`) moves that date rather than adding a rewatch, so tick, undo, tick doesn't count twice. Rewatched episodes and movies add to Watch Time (at their runtime) and show on Activity's *Rewatches* tile.
 
 Days and hours are local to the device. Watches three or more in a row under 3 minutes apart (`BULK_GAP_MIN`) count as marked in bulk, as when a tracker stamps a whole show watched the moment you mark it, and are left out of the calendar, streaks and times (the Calendar says how many). Shows and movies use `--chart-tv` and `--chart-movie`, which differ from `--tv`/`--movie` on dark so the two stay apart for colour-blind eyes.
 

@@ -86,6 +86,13 @@ function normaliseItem(x) {
     // Next keeps what you've watched lately and archives the rest. Titles
     // saved before this existed count their last edit.
     lastWatched: typeof x.lastWatched === "string" ? (Date.parse(x.lastWatched) ? x.lastWatched : "") : updated,
+    // A show you're watching again: the last episode rewatched (episode 0 =
+    // not started), apart from your progress, which a rewatch leaves alone.
+    // null when not rewatching.
+    rewatch: x.kind !== "movie" && x.rewatch && typeof x.rewatch === "object"
+      ? { season: clampInt(x.rewatch.season ?? 1, 1, 999), episode: clampInt(x.rewatch.episode ?? 0, 0, 9999) } : null,
+    // Rewatches finished (a show watched through again, a movie watched again).
+    rewatches: clampInt(x.rewatches ?? 0, 0, 999),
   };
 }
 /* A list from storage or a backup file: valid items only, unique ids
@@ -137,6 +144,7 @@ function saveState(state) {
 }
 
 function progressLabel(item) {
+  if (item.rewatch) return `Rewatching S${item.rewatch.season} · E${item.rewatch.episode}`;
   // A finished show's progress says nothing ("Not started" would mislead).
   if (item.kind !== "tv" || item.status === "watched") return null;
   if (item.season === 1 && item.episode === 0) return "Not started";
@@ -260,6 +268,7 @@ function App() {
   const advance = (id) => {
     const item = findItem(id);
     if (!item) return;
+    if (item.rewatch) { advanceRewatch(item); return; }
     const d = item.kind === "tv" ? cachedDetails("tv", item.tmdbId) : null;
     const n = item.kind === "tv" ? nextEpisode(item, d) : null;
     if (!n) { moveTo(id, "watched"); return; }
@@ -268,6 +277,58 @@ function App() {
     if (isFinished(d) && !nextEpisode(after, d)) {
       showToast(`That was the last episode of “${item.title}”`, { action: { label: "Mark Watched", onClick: () => moveTo(id, "watched") } });
     }
+  };
+
+  /* ============ Rewatches ============
+     A show rewatched from the start ticks through on its own counter
+     (`rewatch`), each episode logged again for Activity, without moving
+     your progress. It ends after the last episode out (a finished show) or
+     the one you'd got to (one you're still watching). A movie watched
+     again is logged at once. */
+  // Where a rewatch ends; null when unknown (a show in Watched with no
+  // progress and no TMDB details), so it runs until you stop it.
+  const rewatchEnd = (item, d) => (item.status === "watched" && latestAired(d))
+    || (progressRank(item) > 10000 ? { season: item.season, episode: item.episode } : null);
+  const startRewatch = (id) => {
+    const before = findItem(id);
+    if (!before || before.kind !== "tv") return;
+    replace(touch({ ...before, rewatch: { season: 1, episode: 0 }, lastWatched: nowIso() }));
+    showToast(`Rewatching “${before.title}” from S1 · E1`, { action: { label: "Undo", onClick: () => replace(touch(before)) } });
+  };
+  const stopRewatch = (id) => {
+    const before = findItem(id);
+    if (!before?.rewatch) return;
+    replace(touch({ ...before, rewatch: null }));
+    showToast("Rewatch stopped", { action: { label: "Undo", onClick: () => replace(touch(before)) } });
+  };
+  const advanceRewatch = (item) => {
+    const d = cachedDetails("tv", item.tmdbId);
+    const at = { ...item, season: item.rewatch.season, episode: item.rewatch.episode };
+    const n = nextEpisode(at, d);
+    const end = rewatchEnd(item, d);
+    const past = (e) => !e || !e.aired || (end && progressRank({ kind: "tv", ...e }) > progressRank({ kind: "tv", ...end }));
+    if (past(n)) {
+      replace(touch({ ...item, rewatch: null, rewatches: item.rewatches + 1 }));
+      showToast(`Finished rewatching “${item.title}”`);
+      return;
+    }
+    logWatches([{ key: watchKey(item, n.season, n.episode), at: nowIso() }], { live: true });
+    const after = { ...item, rewatch: { season: n.season, episode: n.episode }, lastWatched: nowIso() };
+    // That was the last one: the rewatch is done.
+    if (past(nextEpisode({ ...after, season: n.season, episode: n.episode }, d))) {
+      replace(touch({ ...after, rewatch: null, rewatches: item.rewatches + 1 }));
+      showToast(`Finished rewatching “${item.title}”`);
+      return;
+    }
+    replace(touch(after));
+  };
+  const watchedAgain = (id) => {
+    const before = findItem(id);
+    if (!before) return;
+    const at = nowIso();
+    logWatches([{ key: watchKey(before), at }]);
+    replace(touch({ ...before, rewatches: before.rewatches + 1, lastWatched: at }));
+    showToast(`Logged another watch of “${before.title}”`, { action: { label: "Undo", onClick: () => { unlogWatch(watchKey(before), at); replace(touch(before)); } } });
   };
 
   const saveItem = (draft) => {
@@ -360,7 +421,10 @@ function App() {
   };
 
   // The "…" menu on a row or card: what you can do with that title.
-  const itemMenu = (item) => {
+  const itemMenu = (shown) => {
+    // Up Next hands over a copy showing a rewatch's place; act on the title
+    // as saved, so an edit never writes the rewatch over your progress.
+    const item = findItem(shown.id) || shown;
     const tv = item.kind === "tv";
     const d = tv ? cachedDetails("tv", item.tmdbId) : null;
     const n = tv ? nextEpisode(item, d) : null;
@@ -370,7 +434,14 @@ function App() {
       title: item.title,
       sub: [KINDS.find((k) => k.v === item.kind)?.l, statusLabel(item.status), progressLabel(item)].filter(Boolean).join(" · "),
       actions: [
-        tv && n?.aired && item.status !== "watched" && { label: `Mark S${n.season} · E${n.episode} watched`, icon: <CheckIcon size={18} />, run: () => advance(item.id) },
+        tv && item.rewatch && { label: "Stop Rewatching", sub: "Your progress stays where it is", icon: <XIcon size={14} />, run: () => stopRewatch(item.id) },
+        tv && !item.rewatch && (item.status === "watched" || progressRank(item) > 10000) && {
+          label: "Rewatch from the Start", sub: "Tick it through again in Up Next; your progress stays", icon: <PlayIcon size={18} />, run: () => startRewatch(item.id),
+        },
+        !tv && item.status === "watched" && {
+          label: "Watched It Again", sub: item.rewatches ? `Watched ${item.rewatches + 1} times so far` : "Log another viewing, today", icon: <ForwardIcon size={18} />, run: () => watchedAgain(item.id),
+        },
+        tv && n?.aired && item.status !== "watched" && !item.rewatch && { label: `Mark S${n.season} · E${n.episode} watched`, icon: <CheckIcon size={18} />, run: () => advance(item.id) },
         tv && item.tmdbId && behind && { label: "I'm Caught Up", sub: latest ? `Jump to S${latest.season} · E${latest.episode}, the latest out` : "Jump to the latest episode out", icon: <ForwardIcon size={18} />, run: () => catchUp([item.id]) },
         tv && { label: "Choose Episode…", sub: "Pick the season and episode you're on", icon: <TvIcon size={18} />, run: () => openItem(item) },
         item.status !== "watched" && { label: tv ? "Finished It" : "Mark as Watched", sub: "Move to Watched", icon: <CheckCircleIcon size={18} />, run: () => moveTo(item.id, "watched") },

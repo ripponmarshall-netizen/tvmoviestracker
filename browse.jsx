@@ -106,6 +106,10 @@ function upNextInfo(item, d) {
     return { line: "All caught up", sub, progress, canTick: done, tick: "Finish" };
   }
   const line = `S${n.season} · E${n.episode}`;
+  if (item.rewatching) {
+    const left = aired - watched;
+    return { line, sub: `Rewatch${item.rewatches ? ` #${item.rewatches + 1}` : ""}${aired && left > 1 ? ` · ${left} to go` : ""}`, progress, canTick: n.aired, tick: "Watched" };
+  }
   if (!n.aired) return { line, sub: n.date ? `Airs ${fmtDate(n.date, DATE_SHORT)}` : "Not out yet", progress, canTick: false };
   const left = aired - watched;
   const sub = aired
@@ -129,6 +133,8 @@ const lastActive = (i) => Math.max(isoTime(i.lastWatched), isoTime(i.added));
    everything at once, which would leave the order to chance. */
 const byWatched = (list) => [...list].sort((a, b) => lastActive(b) - lastActive(a) || b.updated.localeCompare(a.updated));
 function watchingGroup(item, d, now = Date.now()) {
+  // A rewatch is Up Next while you keep at it, from its first episode.
+  if (item.rewatching) return now - lastActive(item) < RECENT_DAYS * DAY_MS ? "recent" : "onhold";
   if (item.kind === "tv" && item.season === 1 && item.episode === 0) return "unstarted";
   if (item.kind === "tv" && d?.seasons && !nextEpisode(item, d)?.aired) return "caughtup";
   const span = RECENT_DAYS * DAY_MS;
@@ -168,7 +174,10 @@ function LongList({ items, render, leaving, step = 20 }) {
    you've finished lately and what's on hold. The lists fold away under
    their headers (remembered), and each has a "…" menu for all its shows. */
 function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSeeAll, onExplore, onMore, onBulk, onSettings }) {
-  const watching = items.filter((i) => i.status === "watching");
+  // A show you're rewatching shows where the rewatch is (`rewatching`), in
+  // place of your progress, whichever list it's in.
+  const watching = items.filter((i) => i.status === "watching" || i.rewatch)
+    .map((i) => (i.rewatch ? { ...i, season: i.rewatch.season, episode: i.rewatch.episode, rewatching: true } : i));
   const pending = usePrefetchDetails(watching, tmdbKey, true);
   // Most recently watched first, the order fixed while you're here (as on
   // the list screens), so a card you tick doesn't jump under your finger.
@@ -302,7 +311,7 @@ function UpNextHero({ item, d, onOpen, onTick, onMore }) {
         <Backdrop path={d?.backdrop} poster={item.poster} title={item.title} size="w1280" />
         <span aria-hidden style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.85) 100%)" }} />
         <span style={{ position: "absolute", left: 16, right: info.canTick ? 132 : 16, bottom: 14 }}>
-          <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(255,255,255,0.72)" }}>{item.kind === "tv" ? "Next episode" : "Movie"}</span>
+          <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(255,255,255,0.72)" }}>{item.rewatching ? "Rewatching" : item.kind === "tv" ? "Next episode" : "Movie"}</span>
           <span style={{ display: "block", fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
           <span key={info.line} className="tvt-pop" style={{ fontSize: 13.5, color: "rgba(255,255,255,0.86)", marginTop: 3 }}>
             <span className="mono" style={{ fontWeight: 600 }}>{info.line}</span>{info.sub && ` · ${info.sub}`}
