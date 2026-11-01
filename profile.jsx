@@ -9,10 +9,12 @@ const EST_MOVIE_MIN = 110;
 
 /* watchStats — totals over the library. A watched movie counts its
    runtime. A show counts the episodes up to your progress, or, once it's
-   in Watched, every episode aired. Watchlist titles count for nothing. */
-function watchStats(items) {
+   in Watched, every episode aired. Watchlist titles count for nothing.
+   `repeats` (item id → times rewatched, from the watch history) adds each
+   rewatched episode or movie viewing on top. */
+function watchStats(items, repeats = new Map()) {
   const s = {
-    titles: items.length, tvMin: 0, movieMin: 0, episodes: 0, movies: 0,
+    titles: items.length, tvMin: 0, movieMin: 0, episodes: 0, movies: 0, rewatched: 0, rewatchMin: 0,
     showsDone: 0, rated: 0, ratingSum: 0, estimated: 0, genreTime: new Map(), genres: new Set(),
   };
   for (const it of items) {
@@ -31,6 +33,14 @@ function watchStats(items) {
       s.episodes += eps;
       min = eps * (d?.rt || EST_EPISODE_MIN);
       s.tvMin += min;
+    }
+    const again = repeats.get(it.id) || 0;
+    if (again) {
+      const extra = again * (d?.rt || (it.kind === "movie" ? EST_MOVIE_MIN : EST_EPISODE_MIN));
+      if (it.kind === "movie") s.movieMin += extra; else s.tvMin += extra;
+      s.rewatched += again;
+      s.rewatchMin += extra;
+      min += extra;
     }
     if (min && !d?.rt) s.estimated++;
     for (const g of d?.genres || []) s.genres.add(g);
@@ -65,7 +75,8 @@ const BADGES = [
 function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, username, onEditProfile, onOpenList, onSettings, onImportCsv, onOpenItem }) {
   // Runtimes and episode counts for everything that counts towards time.
   const pending = usePrefetchDetails(items.filter((i) => i.status !== "watchlist"), tmdbKey);
-  const s = watchStats(items);
+  const { repeats } = useWatchLog();
+  const s = watchStats(items, repeats);
   const counts = {};
   for (const st of STATUSES) {
     const inSt = items.filter((i) => i.status === st.v);
@@ -269,6 +280,7 @@ function HowCounted({ s }) {
         <div style={{ fontSize: 12.5, color: "var(--ink-faint)", lineHeight: 1.5, paddingBottom: 4 }}>
           Times use TMDB's runtimes. A show counts the episodes up to your progress, or all of them once it's in Watched;
           a show in Not Started counts nothing until you tick an episode or mark it caught up. Watchlist titles don't count.
+          Rewatches in your watch history (each episode or movie watched again) count on top{s.rewatched > 0 ? `: ${s.rewatched.toLocaleString("en-GB")} so far, ${fmtRuntime(s.rewatchMin)}` : ""}.
           {s.estimated > 0 && ` ${plural(s.estimated, "title")} without a runtime ${s.estimated === 1 ? "is" : "are"} estimated at 45 min an episode or 1h 50m a movie.`}
         </div>
       </Collapse>
