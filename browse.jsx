@@ -7,7 +7,7 @@ const titleKey = (kind, tmdbId) => `${kind}:${tmdbId}`;
    seasons can share one TMDB show). */
 const tileKey = (t) => (t.anilistId ? `a:${t.anilistId}` : titleKey(t.kind, t.tmdbId));
 const byRecent = (list) => [...list].sort((a, b) => b.updated.localeCompare(a.updated));
-const PAGE_PAD = "8px 16px calc(120px + var(--safe-bottom))";
+const PAGE_PAD = "8px var(--pad-r) calc(120px + var(--safe-bottom)) var(--pad-l)";
 
 /* Library titles by TMDB id, to badge the cards for titles you have. */
 function useLibraryIndex(items) {
@@ -316,8 +316,8 @@ function UpNextHero({ item, d, onOpen, onTick, onMore }) {
   const press = useLongPress(onMore);
   return (
     <div style={{ position: "relative", marginBottom: 10 }}>
-      <button type="button" className="tvt-wide-btn tvt-hold" ref={press.ref} onClick={press.guard(() => onOpen(item))} style={{
-        position: "relative", display: "block", width: "100%", aspectRatio: "16 / 10", borderRadius: 22, overflow: "hidden",
+      <button type="button" className="tvt-wide-btn tvt-hold tvt-hero" ref={press.ref} onClick={press.guard(() => onOpen(item))} style={{
+        position: "relative", display: "block", width: "100%", borderRadius: 22, overflow: "hidden",
         border: "none", padding: 0, margin: 0, background: "var(--bg-2)", color: "#fff", textAlign: "left", font: "inherit", cursor: "pointer",
         boxShadow: "var(--shadow)",
       }}>
@@ -325,7 +325,7 @@ function UpNextHero({ item, d, onOpen, onTick, onMore }) {
         <span aria-hidden style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.85) 100%)" }} />
         <span style={{ position: "absolute", left: 16, right: info.canTick ? 132 : 16, bottom: 14 }}>
           <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(255,255,255,0.72)" }}>{item.rewatching ? "Rewatching" : item.kind === "tv" ? "Next episode" : "Movie"}</span>
-          <span style={{ display: "block", fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
+          <span style={{ display: "block", fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
           <span key={info.line} className="tvt-pop" style={{ fontSize: 13.5, color: "rgba(255,255,255,0.86)", marginTop: 3 }}>
             <span className="mono" style={{ fontWeight: 600 }}>{info.line}</span>{info.sub && ` · ${info.sub}`}
           </span>
@@ -367,7 +367,7 @@ function UpNextRow({ item, d, onOpen, onTick, onMore, lastWatched }) {
           <Backdrop path={d?.backdrop} poster={item.poster} title={item.title} size="w300" />
         </span>
         <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
+          <span style={{ fontSize: 14.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
           <span key={info.line} className="mono tvt-pop" style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>{info.line}</span>
           <span style={{ fontSize: 12.5, color: "var(--ink-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {lastWatched ? `Last watched ${fmtAgo(lastWatched)}` : info.sub}
@@ -605,7 +605,7 @@ function HeroCard({ tile, rank, status, onOpen }) {
         <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(255,255,255,0.75)" }}>
           #{rank} · {tile.anime ? (tile.kind === "tv" ? "Anime" : "Anime Movie") : tile.kind === "tv" ? "Show" : "Movie"}
         </span>
-        <span style={{ display: "block", fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tile.title}</span>
+        <span style={{ display: "block", fontSize: 19, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tile.title}</span>
         <span style={{ display: "block", fontSize: 13, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>{animeMeta(tile)}</span>
       </span>
       {status && <StatusBadge status={status} />}
@@ -677,7 +677,7 @@ function SearchList({ state, kind, source = "TMDB", statusOf, onOpen, onAdd }) {
               }}>
                 <Poster item={t} />
                 <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                  <span style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
+                  <span style={{ fontSize: 14.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
                   <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13, color: "var(--ink-dim)" }}>
                     <KindChip kind={t.kind} anime={t.anime} />
                     {animeMeta(t) && <span className="mono">{animeMeta(t)}</span>}

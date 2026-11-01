@@ -94,7 +94,7 @@ function ActivitySection({ items, tmdbKey, onOpenItem, onImportCsv }) {
       {stats.total ? (
         <>
           <ActivityCalendar stats={stats} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div className="tvt-tiles" style={{ marginBottom: 10 }}>
             <StatTile label="Current streak" value={`${stats.current}d`} color="var(--accent)" icon={<FlameIcon size={15} />} />
             <StatTile label="Longest streak" value={`${stats.longest}d`} color="var(--accent)" icon={<TrophyIcon size={15} />} />
             <StatTile label="Rewatches" value={stats.rewatches.toLocaleString("en-GB")} color="var(--accent)" icon={<RepeatIcon size={15} />} />

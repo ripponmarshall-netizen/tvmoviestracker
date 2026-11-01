@@ -3,7 +3,9 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 const APP_NAME = "Nostalgiaa";
-const APP_VERSION = "1.10.0";
+const APP_VERSION = "1.11.0";
+// The maker's tag, in the footer of Profile and in Settings → About.
+const MAKER_TAG = "Workflow Coaching and Optimization";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -412,7 +414,9 @@ function App() {
       if (!at || !wanted.has(i.id)) return i;
       const ended = isFinished(details.get(i.id));
       const ahead = progressRank(i) >= progressRank({ kind: "tv", ...at });
-      if (ahead && !ended) return i;
+      // Nothing to do: already there, and either still running or already
+      // in Watched.
+      if (ahead && (!ended || i.status === "watched")) return i;
       before.set(i.id, i);
       if (ended) finished++;
       const p = ahead ? {} : { season: at.season, episode: at.episode };
@@ -654,7 +658,7 @@ function Header() {
   }, []);
   return (
     <header className={"tvt-header" + (scrolled ? " is-scrolled" : "")}>
-      <div style={{ maxWidth: 640, margin: "0 auto", padding: "calc(var(--safe-top) + 12px) 16px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="tvt-header-inner">
         <img src="icon.svg" alt="" width="30" height="30" style={{ display: "block", borderRadius: 8, flexShrink: 0 }} />
         <h1 className="tvt-wordmark">{APP_NAME}</h1>
       </div>
@@ -703,7 +707,7 @@ function ListView({ status, items, filter, setFilter, onOpen, onQuick, onMore, o
   const quick = (item, qa) => (qa.patch.status && qa.patch.status !== item.status ? foldAway(item.id) : onQuick(item.id));
 
   return (
-    <main className="tvt-view tvt-push tvt-page" style={{ padding: "8px 16px calc(120px + var(--safe-bottom))" }}>
+    <main className="tvt-view tvt-push tvt-page" style={{ padding: "8px var(--pad-r) calc(120px + var(--safe-bottom)) var(--pad-l)" }}>
       <ScreenTitle title={meta.l} detail={plural(shown.length, "title")} back={back} />
       {inStatus.length > 6 && <SearchField value={query} onChange={setQuery} placeholder={`Search ${meta.l}`} />}
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
@@ -764,7 +768,7 @@ function ItemRow({ item, onOpen, onQuick, onMore }) {
       }}>
         <Poster item={item} />
         <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
+          <span style={{ fontSize: 14.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13, color: "var(--ink-dim)" }}>
             <KindChip kind={item.kind} anime={item.tmdbId && cachedDetails(item.kind, item.tmdbId)?.anime} />
             {item.year && !progress && <span className="mono">{item.year}</span>}
@@ -1025,7 +1029,7 @@ function RatingInput({ value, onChange }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 36, marginTop: 8 }}>
         {shown ? (
           <span style={{ flex: 1, display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span key={shown} className="mono tvt-pop" style={{ fontSize: 22, fontWeight: 700 }}>{fmtRating(shown)}</span>
+            <span key={shown} className="mono tvt-pop" style={{ fontSize: 20, fontWeight: 700 }}>{fmtRating(shown)}</span>
             <span style={{ fontSize: 13.5, color: "var(--ink-dim)" }}>out of 5</span>
           </span>
         ) : (
@@ -1185,6 +1189,13 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
       </SettingsSection>
 
       <SettingsSection title="About">
+        <SettingsGroup id="about" icon={<img src="icon.svg" alt="" width="18" height="18" style={{ borderRadius: 5 }} />} tint="var(--accent)" title={`About ${APP_NAME}`} summary={`v${APP_VERSION}`}>
+          <div style={note}>
+            Track the shows and movies you're watching, want to watch and have watched, with Up Next, your watch time and activity,
+            synced across your iPhone and iPad.
+          </div>
+          <MakerTag align="left" />
+        </SettingsGroup>
         <SettingsGroup id="credits" icon={<InfoIcon size={16} />} tint="#5e5ce6" title="Credits" summary="TMDB · AniList · TVmaze">
           <Credits />
         </SettingsGroup>
@@ -1194,12 +1205,27 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
         <img src="icon.svg" alt="" width="36" height="36" style={{ display: "block", margin: "0 auto 8px", borderRadius: 9 }} />
         <div className="tvt-wordmark" style={{ fontSize: 15 }}>{APP_NAME}</div>
         <div className="mono" style={{ fontSize: 11.5, color: "var(--ink-faint)", marginTop: 3 }}>v{APP_VERSION} · {plural(items.length, "title")}</div>
+        <div style={{ marginTop: 12 }}><MakerTag /></div>
       </div>
       {/* TMDB's terms ask apps using its API to say this where it can be seen. */}
       <div style={{ fontSize: 11, color: "var(--ink-faint)", margin: "12px auto 0", lineHeight: 1.45, textAlign: "center", maxWidth: 340 }}>
         This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming data from JustWatch. Schedules from TVmaze, under CC BY-SA 4.0. Facts from Wikidata (CC0). Anime data from AniList.
       </div>
     </ModalFrame>
+  );
+}
+
+/* The maker's tag: a small caption over a quiet pill with the name.
+   `align` left sits it in a settings row; centred otherwise. */
+function MakerTag({ align = "center" }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: align === "left" ? "flex-start" : "center", gap: 5 }}>
+      <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--ink-faint)" }}>Crafted by</span>
+      <span className="tvt-maker">
+        <span aria-hidden className="tvt-maker-dot" />
+        {MAKER_TAG}
+      </span>
+    </div>
   );
 }
 
@@ -1303,7 +1329,7 @@ function SettingsGroup({ id, icon, tint, title, summary, defaultOpen = false, ch
         background: "none", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
       }}>
         <span aria-hidden className="tvt-settings-icon" style={{ "--tint": tint }}>{icon}</span>
-        <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 500, letterSpacing: "-0.01em" }}>{title}</span>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 500, letterSpacing: "-0.01em" }}>{title}</span>
         {summary && <span style={{ fontSize: 13.5, color: "var(--ink-faint)", maxWidth: "45%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{summary}</span>}
         <span aria-hidden style={{ display: "inline-flex", color: "var(--ink-faint)", opacity: 0.7, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.3s var(--ease-snappy)" }}>
           <ChevronIcon dir="down" size={13} />
@@ -1322,7 +1348,7 @@ function Taskbar({ tab, onTab, counts }) {
   const n = TABS.length;
   return (
     <nav aria-label="Main" className="tvt-tabbar">
-      <div className="tvt-dock" style={{ maxWidth: 360, margin: "0 auto", padding: "0 16px 12px", pointerEvents: "auto" }}>
+      <div className="tvt-dock" style={{ maxWidth: 360, margin: "0 auto", padding: "0 var(--pad-r) 12px var(--pad-l)", pointerEvents: "auto" }}>
         <div role="tablist" style={{
           // A floating capsule of frosted glass, like the iOS tab bar.
           background: "var(--surface-translucent)",

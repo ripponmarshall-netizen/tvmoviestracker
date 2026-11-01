@@ -67,7 +67,7 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
   const remove = () => { onDelete(item.id); close(); };
 
   return (
-    <ModalFrame sheet flush dismiss={{ ref, closing, close }} label={title}>
+    <ModalFrame sheet flush maxWidth={600} dismiss={{ ref, closing, close }} label={title}>
       {/* Stays at the top of the sheet as it scrolls. */}
       <div className={barOn ? "tvt-sheet-top is-barred" : "tvt-sheet-top"}>
         <div className="tvt-sheet-bar" aria-hidden>{title}</div>
@@ -92,7 +92,7 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
         </div>
 
         <div style={{ textAlign: "center", padding: "18px 22px 0" }}>
-          <h2 style={{ margin: 0, fontSize: 25, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15, overflowWrap: "anywhere" }}>{title}</h2>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15, overflowWrap: "anywhere" }}>{title}</h2>
           <div style={{ fontSize: 13.5, color: "var(--ink-dim)", marginTop: 6 }}>{meta}</div>
         </div>
 
@@ -149,7 +149,7 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
         )}
 
         {more.length > 0 && (
-          <div style={{ padding: "26px 16px 0" }}>
+          <div style={{ padding: "26px 16px 0", "--pad-l": "16px", "--pad-r": "16px" }}>
             <Shelf title="More Like This">
               {more.map((t) => (
                 <PosterCard key={titleKey(t.kind, t.tmdbId)} tile={t} width={104} status={findInLibrary(items, t)?.status}
@@ -201,7 +201,7 @@ function InfoStrip({ cells, flat }) {
       {cells.map((c, i) => (
         <div key={c.label} role="listitem" style={{ flex: "1 0 auto", textAlign: "center", padding: "0 8px", borderLeft: i ? "1px solid var(--line-soft)" : "none" }}>
           <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--ink-faint)", whiteSpace: "nowrap" }}>{c.label}</div>
-          <div className="mono" style={{ fontSize: 20, fontWeight: 700, marginTop: 4, whiteSpace: "nowrap" }}>{c.value}</div>
+          <div className="mono" style={{ fontSize: 18, fontWeight: 700, marginTop: 4, whiteSpace: "nowrap" }}>{c.value}</div>
           <div style={{ fontSize: 11.5, color: "var(--ink-dim)", marginTop: 3, whiteSpace: "nowrap" }}>{c.sub || " "}</div>
         </div>
       ))}
@@ -279,7 +279,7 @@ function WhereToWatch({ d, region }) {
 function DetailSection({ title, children }) {
   return (
     <section style={{ padding: "24px 20px 0" }}>
-      <h3 style={{ margin: "0 0 10px", fontSize: 19, fontWeight: 700, letterSpacing: "-0.015em" }}>{title}</h3>
+      <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 700, letterSpacing: "-0.015em" }}>{title}</h3>
       {children}
     </section>
   );
@@ -299,7 +299,7 @@ function ProgressSection({ item, d, onAdvance, onPatch, onCatchUp }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="label">{info.line === "All caught up" ? "Caught up" : "Up next"}</div>
-          <div key={info.line} className="mono tvt-pop" style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>{info.line}</div>
+          <div key={info.line} className="mono tvt-pop" style={{ fontSize: 20, fontWeight: 700, marginTop: 2 }}>{info.line}</div>
           <div style={{ fontSize: 12.5, color: "var(--ink-dim)", marginTop: 2 }}>{info.sub}</div>
         </div>
         {info.canTick && (
@@ -363,9 +363,9 @@ function Overview({ text }) {
   const long = text.length > 220;
   return (
     <div>
-      <div className={open || !long ? undefined : "tvt-clamp-4"} style={{ fontSize: 15, lineHeight: 1.45 }}>{text}</div>
+      <div className={open || !long ? undefined : "tvt-clamp-4"} style={{ fontSize: 14.5, lineHeight: 1.45 }}>{text}</div>
       {long && !open && (
-        <button type="button" onClick={() => setOpen(true)} style={{ background: "none", border: "none", padding: "4px 0", color: "var(--accent)", fontSize: 15, cursor: "pointer" }}>More</button>
+        <button type="button" onClick={() => setOpen(true)} style={{ background: "none", border: "none", padding: "4px 0", color: "var(--accent)", fontSize: 14.5, cursor: "pointer" }}>More</button>
       )}
     </div>
   );

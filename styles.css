@@ -54,6 +54,29 @@
      transitions list var(--press) so they keep it. */
   --press: scale 0.34s var(--ease-bouncy);
 }
+/* Layout: the side gutter grows on an iPad, and in landscape it clears
+   the notch or Dynamic Island (viewport-fit=cover lets the page run under
+   them). --page-max is the reading column: a phone's width, wider on an
+   iPad so it isn't a strip down the middle. Set on :root only, so the
+   [data-theme] blocks don't re-declare them. */
+:root {
+  --gutter: 16px;
+  --page-max: 640px;
+  --pad-l: max(var(--gutter), env(safe-area-inset-left, 0px));
+  --pad-r: max(var(--gutter), env(safe-area-inset-right, 0px));
+}
+@media (min-width: 700px) {
+  :root {
+    --gutter: 24px;
+    --page-max: 780px;
+  }
+}
+@media (min-width: 1100px) {
+  :root {
+    --page-max: 880px;
+  }
+}
+
 /* Also on [data-theme]: the app sets the theme on <body> too, and the dark
    block above would otherwise re-declare the fallbacks there. */
 @supports (transition-timing-function: linear(0, 1)) {
@@ -247,11 +270,16 @@ body {
 html {
   overscroll-behavior: none;
 }
-/* San Francisco on Apple devices; Geist (loaded in index.html) elsewhere. */
+/* Geist (loaded in index.html) everywhere: a crisp, premium grotesk.
+   San Francisco stands in until it loads, and offline on a first visit. */
 body {
   font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Geist", system-ui,
+    "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui,
     sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
   background: var(--bg);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
@@ -277,7 +305,7 @@ button {
   letter-spacing: -0.01em;
 }
 .label {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--ink-dim);
 }
@@ -764,12 +792,12 @@ button:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
+  padding: calc(16px + var(--safe-top)) var(--pad-r) calc(16px + var(--safe-bottom)) var(--pad-l);
   animation: tvtFadeIn 0.18s ease-out;
 }
 .tvt-backdrop.is-bottom {
   align-items: flex-end;
-  padding: calc(16px + var(--safe-top)) 10px calc(10px + var(--safe-bottom));
+  padding: calc(16px + var(--safe-top)) max(10px, env(safe-area-inset-right, 0px)) calc(10px + var(--safe-bottom)) max(10px, env(safe-area-inset-left, 0px));
 }
 .tvt-backdrop.is-closing {
   animation: tvtFadeOut 0.18s ease-in forwards;
@@ -941,8 +969,52 @@ button:focus-visible {
   animation-delay: calc(var(--rise-step, 0.05s) * 2);
 }
 .tvt-page {
-  max-width: 640px;
+  max-width: var(--page-max);
   margin: 0 auto;
+}
+/* The header's row lines up with the page under it. */
+.tvt-header-inner {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + 12px) var(--pad-r) 12px var(--pad-l);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Grids of stat tiles: two across on a phone, four on an iPad. */
+.tvt-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+/* Awards: four across on a phone, eight on an iPad (one row of the eight
+   on show). */
+.tvt-awards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 4px;
+}
+/* Up Next's big card: 16:10 on a phone; on an iPad, wider and capped, so
+   it doesn't fill the screen. */
+.tvt-hero {
+  aspect-ratio: 16 / 10;
+}
+@media (min-width: 700px) {
+  .tvt-tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .tvt-awards {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+  .tvt-hero {
+    aspect-ratio: 21 / 9;
+  }
+}
+/* iPhone in landscape: little height, so the big card stays short. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .tvt-hero {
+    aspect-ratio: 3 / 1;
+  }
 }
 /* A list pushed over a tab slides in from the right, as in iOS. */
 .tvt-view.tvt-push > * {
@@ -965,10 +1037,10 @@ button:focus-visible {
   display: flex;
   gap: 12px;
   overflow-x: auto;
-  margin: 0 -16px;
-  padding: 2px 16px 6px;
+  margin: 0 calc(-1 * var(--pad-r)) 0 calc(-1 * var(--pad-l));
+  padding: 2px var(--pad-r) 6px var(--pad-l);
   scroll-snap-type: x mandatory;
-  scroll-padding: 0 16px;
+  scroll-padding: 0 var(--pad-r) 0 var(--pad-l);
   overscroll-behavior-x: contain;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -1207,9 +1279,9 @@ button[role="tab"]:active {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 21px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
   line-height: 1.2;
   white-space: nowrap;
   font-kerning: normal;
@@ -1217,11 +1289,35 @@ button[role="tab"]:active {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The maker's tag (MakerTag): a hairline pill with a small accent dot. */
+.tvt-maker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--ink-dim);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 28%, transparent);
+}
+.tvt-maker-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in oklab, var(--accent) 70%, transparent);
+}
+
 /* Settings: headed sections, each one card of rows split by hairlines
    that start after the icon, as in iOS. */
 .tvt-settings-label {
   margin: 0 14px 7px;
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
