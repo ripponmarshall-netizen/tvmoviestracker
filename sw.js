@@ -10,6 +10,8 @@ const FONT_CACHE = "tvt-fonts-v1";
 // the next launch. Past IMG_MAX the oldest are dropped.
 const IMG_CACHE = "tvt-img-v1";
 const IMG_MAX = 600;
+// TMDB's image server, and AniList's (covers and banners for anime).
+const IMG_HOSTS = new Set(["image.tmdb.org", "s4.anilist.co"]);
 
 // Precached on install, so the app opens offline after the first visit.
 // A file missing from this list is still cached the first time it loads.
@@ -23,6 +25,7 @@ const ASSETS = [
   "./tvmaze.jsx",
   "./wikidata.jsx",
   "./trakt.jsx",
+  "./anilist.jsx",
   "./cloud.jsx",
   "./watchlog.jsx",
   "./detail.jsx",
@@ -39,7 +42,7 @@ const ASSETS = [
 
 // React, Supabase and Babel load from a CDN at pinned versions
 // (index.html). Those files never change, so they are cache-first. Calls
-// to Supabase, TMDB, TVmaze, Wikidata and Trakt pass straight through.
+// to Supabase, TMDB, TVmaze, Wikidata, Trakt and AniList pass straight through.
 const CDN_ASSETS = [
   "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
   "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js",
@@ -125,11 +128,11 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // TMDB images: cache-first. Fetched with CORS (TMDB's image server
+  // TMDB and AniList images: cache-first. Fetched with CORS (TMDB's image server
   // allows it), so the cache holds real responses rather than opaque ones,
   // which count far bigger against storage. If that fails, the image is
   // fetched as the page asked, uncached.
-  if (url.hostname === "image.tmdb.org") {
+  if (IMG_HOSTS.has(url.hostname)) {
     e.respondWith(
       caches.open(IMG_CACHE).then((cache) =>
         cache.match(e.request.url).then(

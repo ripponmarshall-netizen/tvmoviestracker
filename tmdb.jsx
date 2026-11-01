@@ -95,7 +95,14 @@ function tmdbTile(r, kind) {
     vote: r.vote_average || 0,
     votes: r.vote_count || 0,
     overview: (r.overview || "").slice(0, 400),
+    anime: isAnimeResult(r),
   };
+}
+/* Anime, as TMDB has it: animated (genre 16) and Japanese. A list result
+   carries genre ids; a title's details carry genres and its countries. */
+function isAnimeResult(r) {
+  const animated = (r?.genre_ids || []).includes(16) || (r?.genres || []).some((g) => g.id === 16);
+  return animated && (r.original_language === "ja" || (r.origin_country || []).includes("JP"));
 }
 
 /* Shows and movies matching `query`, in TMDB's order of relevance. */
@@ -195,8 +202,11 @@ function notifyDetails() {
 function cachedDetails(kind, id) {
   return id ? detailsAll()[detailsKey(kind, id)] || null : null;
 }
+/* Bumped when compactDetails keeps something new, so details saved by an
+   older version are fetched again when next needed. */
+const DETAILS_V = 2;
 function detailsStale(d) {
-  return !d || Date.now() - d.at > (d.kind === "tv" ? DAY_MS : 30 * DAY_MS);
+  return !d || d.v !== DETAILS_V || Date.now() - d.at > (d.kind === "tv" ? DAY_MS : 30 * DAY_MS);
 }
 
 /* The parts of TMDB's /tv/{id} or /movie/{id} the app uses. For a show,
@@ -206,7 +216,8 @@ function detailsStale(d) {
    typical episode (0 when TMDB doesn't know). `imdb` (shows and movies)
    and `tvdb` are its ids elsewhere, for TVmaze and Wikidata. `wp` is where
    to watch it in `wpr`, the country it was fetched for, and in the US
-   (`providersFor` reads it). */
+   (`providersFor` reads it). `orig` is its original title and `anime`
+   whether it's anime (AniList is asked about those). */
 function compactDetails(kind, r) {
   const tv = kind === "tv";
   const seasons = {};
@@ -219,8 +230,10 @@ function compactDetails(kind, r) {
   const last = tv ? ep(r.last_episode_to_air) : null;
   const next = tv ? ep(r.next_episode_to_air) : null;
   return {
-    at: Date.now(), kind, id: r.id,
+    at: Date.now(), v: DETAILS_V, kind, id: r.id,
     title: (tv ? r.name : r.title) || "",
+    orig: String((tv ? r.original_name : r.original_title) || "").slice(0, 200),
+    anime: isAnimeResult(r),
     poster: r.poster_path || "",
     backdrop: r.backdrop_path || "",
     date: (tv ? r.first_air_date : r.release_date) || "",
@@ -324,7 +337,8 @@ function useTitleDetails(kind, id, key) {
 }
 
 /* usePrefetchDetails — fetch details for the titles in `list` that have
-   none (or, with refreshStale, whose details are old), four at a time.
+   none (or, with refreshStale, whose details are old; with "old", saved by
+   an older version), four at a time.
    Returns how many are still to come. */
 function usePrefetchDetails(list, key, refreshStale = false) {
   useDetailsVersion();
@@ -332,7 +346,8 @@ function usePrefetchDetails(list, key, refreshStale = false) {
     ? list.filter((i) => {
         if (!i.tmdbId || detailsFailed.has(detailsKey(i.kind, i.tmdbId))) return false;
         const d = cachedDetails(i.kind, i.tmdbId);
-        return refreshStale ? detailsStale(d) : !d;
+        // "old": only details an older version saved (missing a newer field).
+        return refreshStale === "old" ? !d || d.v !== DETAILS_V : refreshStale ? detailsStale(d) : !d;
       })
     : [];
   const sig = want.map((i) => detailsKey(i.kind, i.tmdbId)).join(",");
@@ -596,5 +611,5 @@ Object.assign(window, {
   setWatchRegion, guessRegion, providersFor,
   posterUrl, backdropUrl, fmtDate, fmtRuntime, fmtCount, tmdbTile, searchTitles, testTmdbKey,
   cachedDetails, useTitleDetails, usePrefetchDetails, useTmdbList, useTmdbSearch, refreshTmdb, tmdbGet,
-  episodesWatched, airedEpisodes, isFinished, nextEpisode, latestAired, fetchDetailsFor, SearchResults, PosterThumb,
+  episodesWatched, airedEpisodes, isFinished, isAnimeResult, detailsStale, loadDetails, nextEpisode, latestAired, fetchDetailsFor, SearchResults, PosterThumb,
 });

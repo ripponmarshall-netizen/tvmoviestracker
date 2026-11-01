@@ -333,6 +333,45 @@ function ActionSheet({ title, sub, actions = [], onDone }) {
   );
 }
 
+/* useLongPress — press and hold (about half a second) to run `onLong`,
+   as iOS opens a context menu: here, a row's "…" menu. A finger that
+   moves (a scroll) cancels it. Returns { ref } for the element and
+   guard(fn), which wraps its onClick so the tap that ends a long press
+   doesn't also open the row. The listeners are attached by the ref (no
+   props to spread), and do nothing without an onLong. */
+const LONG_PRESS_MS = 480;
+function useLongPress(onLong) {
+  const cbRef = useRefC(onLong);
+  cbRef.current = onLong;
+  const st = useRefC(null);
+  if (!st.current) {
+    const s = { timer: 0, fired: false, x: 0, y: 0, el: null };
+    const cancel = () => { clearTimeout(s.timer); s.timer = 0; };
+    const down = (e) => {
+      if (e.button > 0 || !cbRef.current) return;
+      s.fired = false;
+      s.x = e.clientX; s.y = e.clientY;
+      cancel();
+      s.timer = setTimeout(() => { s.timer = 0; s.fired = true; cbRef.current?.(); }, LONG_PRESS_MS);
+    };
+    const move = (e) => { if (s.timer && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 10) cancel(); };
+    const menu = (e) => { if (cbRef.current) e.preventDefault(); };
+    const on = [["pointerdown", down], ["pointermove", move], ["pointerup", cancel], ["pointercancel", cancel], ["pointerleave", cancel], ["contextmenu", menu]];
+    s.ref = (el) => {
+      if (s.el) on.forEach(([t, fn]) => s.el.removeEventListener(t, fn));
+      cancel();
+      s.el = el;
+      if (el) on.forEach(([t, fn]) => el.addEventListener(t, fn, t === "pointermove" ? { passive: true } : undefined));
+    };
+    s.guard = (fn) => (e) => {
+      if (s.fired) { s.fired = false; e.preventDefault(); return; }
+      fn(e);
+    };
+    st.current = s;
+  }
+  return st.current;
+}
+
 /* A round "…" button that opens a menu. */
 function MoreButton({ onClick, label = "More", size = 36, style }) {
   return (
@@ -578,8 +617,9 @@ function useSheetDrag(sheetRef, backdropRef, close) {
       const dx = t.clientX - start.x, dy = t.clientY - start.y;
       if (!dragging) {
         // Claim a downward move at the top from the first event: iOS won't
-        // let a scroll that has already started be cancelled.
-        if (el.scrollTop <= 0 && dy > 0 && e.cancelable) e.preventDefault();
+        // let a scroll that has already started be cancelled. Not a mostly
+        // sideways one, which may be a shelf in the sheet being swiped.
+        if (el.scrollTop <= 0 && dy > 0 && dy >= Math.abs(dx) && e.cancelable) e.preventDefault();
         if (el.scrollTop > 0 || dy < 8 || Math.abs(dy) < Math.abs(dx) * 1.2) {
           if (Math.abs(dx) > 10 || dy < -8 || el.scrollTop > 0) start = null;
           return;
@@ -932,6 +972,10 @@ function CloudIcon({ size }) {
 function InfoIcon({ size }) {
   return <Svg size={size}><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5M12 7.6v.1" /></Svg>;
 }
+/* A sparkle, for anime (AniList). */
+function AnimeIcon({ size }) {
+  return <Svg size={size}><path d="M12 3.5l1.9 5.2 5.6 1.8-5.6 1.9L12 17.6l-1.9-5.2-5.6-1.9 5.6-1.8z" /><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" /></Svg>;
+}
 function ArchiveIcon({ size }) {
   return <Svg size={size}><rect x="3.5" y="4.5" width="17" height="4.5" rx="1" /><path d="M5 9v10.5h14V9M10 13h4" /></Svg>;
 }
@@ -941,8 +985,8 @@ Object.assign(window, {
   prefersReducedMotion, useFoldAway, AnimatedRow, Collapse,
   showToast, ToastHost, askConfirm, ConfirmHost, showMenu, MenuHost, MoreButton,
   useFold, FoldChevron, FoldSection, Picker, ScreenTitle, SectionHeader, ProgressBar,
-  ModalFrame, ModalHead, springTo, useModalDismiss, PullToRefresh, downloadBlob,
+  ModalFrame, ModalHead, springTo, useModalDismiss, PullToRefresh, downloadBlob, useLongPress,
   XIcon, PlusIcon, MinusIcon, GearIcon, PlayIcon, BookmarkIcon, CheckCircleIcon, StarIcon,
   CompassIcon, PersonIcon, CameraIcon, SearchIcon, CheckIcon, ChevronIcon, ActivityIcon, MoreIcon,
-  TvIcon, FilmIcon, TrashIcon, PencilIcon, ForwardIcon, UploadIcon, PaletteIcon, KeyIcon, CloudIcon, ArchiveIcon, InfoIcon,
+  TvIcon, FilmIcon, TrashIcon, PencilIcon, ForwardIcon, UploadIcon, PaletteIcon, KeyIcon, CloudIcon, ArchiveIcon, InfoIcon, AnimeIcon,
 });

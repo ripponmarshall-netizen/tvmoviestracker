@@ -25,6 +25,8 @@
      too (purple beside blue doesn't, on dark). */
   --chart-tv: #0a84ff;
   --chart-movie: #e5559f;
+  /* Anime (AniList's titles, and TMDB's Japanese animation). */
+  --anime: #ff6482;
   --danger: #ff453a;
   --star: #ffd60a;
   --ok: #30d158;
@@ -220,6 +222,7 @@
   --movie: #8944ab;
   --chart-tv: #0071e3;
   --chart-movie: #8944ab;
+  --anime: #c4153f;
   --danger: #d70015;
   --star: #a35f00;
   --ok: #248a3d;
@@ -705,7 +708,7 @@ button:focus-visible {
    fixed-position element inside it. */
 @keyframes tvtRise {
   from {
-    transform: translateY(var(--rise-from, 22px));
+    transform: translate(var(--rise-x, 0px), var(--rise-from, 22px));
     opacity: 0;
   }
   to {
@@ -917,7 +920,17 @@ button:focus-visible {
   animation: tvtToastOut 0.2s ease-in forwards;
 }
 
-/* Screens: each block rises in on a spring, a beat after the one above. */
+/* Screens: each block rises in on a spring, a beat after the one above.
+   Switching tabs, it drifts in from the side the new tab is on as well
+   (--enter-x, set by App on .tvt-screen); blocks further in (a list's
+   rows, shelves re-drawn for a filter) only rise. */
+.tvt-screen > .tvt-view > * {
+  --rise-x: var(--enter-x, 0px);
+}
+.tvt-view .tvt-view > *,
+.tvt-row-in {
+  --rise-x: 0px;
+}
 .tvt-view > * {
   animation: tvtRise var(--rise-dur, 0.7s) var(--rise-ease, var(--ease-snappy)) backwards;
 }
@@ -976,10 +989,27 @@ button:focus-visible {
     transform: rotate(360deg);
   }
 }
-/* Placeholders while a shelf loads. */
+/* Placeholders while a shelf loads: a soft sheen sweeping across, as
+   iOS draws loading content. */
 .tvt-skel {
-  background: var(--fill);
-  animation: tvtPulse 1.4s ease-in-out infinite;
+  background-color: var(--fill);
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in oklab, var(--ink) 7%, transparent) 50%,
+    transparent 70%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: tvtSheen 1.5s ease-in-out infinite;
+}
+@keyframes tvtSheen {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
+  }
 }
 @keyframes tvtPulse {
   50% {
@@ -1230,6 +1260,69 @@ button[role="tab"]:active {
 
 .tvt-wide-btn:not(:disabled):active {
   scale: 0.985;
+}
+/* Rows you can press and hold (for their "…" menu): no text selection or
+   iOS callout, and the press sinks a little further the longer it's held. */
+.tvt-hold {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.tvt-hold:not(:disabled):active {
+  scale: 0.97;
+  transition: scale 0.5s cubic-bezier(0.2, 0, 0, 1);
+}
+/* The tick on Up Next: a ring pulses out of it as it's pressed. */
+.tvt-tick {
+  position: relative;
+}
+.tvt-tick::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 55%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.tvt-tick:not(:disabled):active::after {
+  animation: tvtRing 0.5s ease-out;
+}
+@keyframes tvtRing {
+  0% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 55%, transparent);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: 0 0 0 12px color-mix(in oklab, var(--accent) 0%, transparent);
+  }
+}
+/* Tags on the title sheet drop in one after another. */
+.tvt-chip-in {
+  display: inline-block;
+  animation: tvtPopIn 0.45s var(--ease-bouncy) backwards;
+}
+/* The trending carousel: cards ease up to full size as they come to the
+   middle, where scroll-driven animation is supported (Safari 26). */
+@supports (animation-timeline: view()) {
+  .tvt-hero-card {
+    animation: tvtHeroScale linear both;
+    animation-timeline: view(inline);
+    animation-range: cover 0% cover 100%;
+  }
+  @keyframes tvtHeroScale {
+    0%,
+    100% {
+      scale: 0.94;
+      opacity: 0.75;
+    }
+    35%,
+    65% {
+      scale: 1;
+      opacity: 1;
+    }
+  }
 }
 
 /* Respect the OS "reduce motion" setting across the whole app. */
