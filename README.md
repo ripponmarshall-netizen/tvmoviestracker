@@ -71,6 +71,8 @@ Then **Settings → Account → Sign in**. Sign-in uses a password rather than a
 | `detail.jsx` | The title sheet (`TitleSheet`): artwork, the facts strip, status tiles, progress (with `EpisodePicker`, the season and episode dropdowns), rating, more like this. |
 | `browse.jsx` | The Watching and Explore screens (`watchingGroup` decides Up Next, Not Started, Caught Up or On Hold), and the poster cards and shelves they're built from. |
 | `profile.jsx` | The Profile screen: the username (`cleanUsername`, `ProfileSheet`), the profile picture (`avatarFromFile`, `AvatarPicker`), `watchStats`, the `BADGES` list, the library rows. |
+| `activity.jsx` | Profile's Activity section: the calendar heatmap and streaks (`activityStats`, which sets aside watches marked in bulk), When You Watch, Coming Up, Your Eras and Your Ratings, and the shared `ColumnChart`. |
+| `watchlog.jsx` | The watch history behind Activity: one dated entry per episode or movie, in IndexedDB on the device (`logWatches`, `logWatchStep`, `useWatchLog`). |
 | `importcsv.jsx` | CSV import: the parser, column matching (`CSV_HEADS`), merging into the library (`planImport`), matching titles on TMDB afterwards, and the import sheet. |
 | `app.jsx` | The data model, routing between tabs, the "•••" menus (`itemMenu`, `bulkMenu`), catching up (`catchUp`), the list screens, add/edit sheet, settings (with `CREDITS`, the attributions) and tab bar. |
 | `supabase/schema.sql` | The tables and row-level security for sync. |
@@ -119,6 +121,18 @@ Signed in, each title is also a row in `tvt_items`, with the whole item in a `da
   lastWatched        // ISO date you last moved it on ("" = never); Up Next vs On Hold
 }
 ```
+
+### Activity (Profile)
+
+A title only keeps when you last watched it, so Activity has its own history (`watchlog.jsx`): one entry per episode or movie with when you watched it, kept on this device (IndexedDB `tvt-log`) and not synced. It fills from a CSV whose date column says when you watched (`watched_at`, `last_watched_at`, *Watched Date* and the like; an *added* or *rated* date doesn't count), such as TV Time's `watches.csv` or a Letterboxd diary, and from episodes you tick and movies you mark watched in the app. The same episode imported twice keeps its latest date, so reading a file again doesn't double it. Bulk moves from a section's ••• menu and *I'm Caught Up* aren't logged.
+
+- **Calendar**: a heatmap of the last 26 weeks (‹ › for earlier), one cell a day, shaded by quartile of your busy days; tap a day for what you watched. Under it your busiest day, and above it your current and longest streaks.
+- **When You Watch**: by day of the week or hour of the day.
+- **Coming Up**: a month calendar of the next episode of each show you're watching and release dates of titles on your lists, from TMDB's cached details; tap a day for the titles.
+- **Your Eras**: the decades your shows and movies come from (not the Watchlist), stacked.
+- **Your Ratings**: how your stars spread, with your average.
+
+Days and hours are local to the device. Watches three or more in a row under 3 minutes apart (`BULK_GAP_MIN`) count as marked in bulk, as when a tracker stamps a whole show watched the moment you mark it, and are left out of the calendar, streaks and times (the Calendar says how many). Shows and movies use `--chart-tv` and `--chart-movie`, which differ from `--tv`/`--movie` on dark so the two stay apart for colour-blind eyes.
 
 ### Up Next, Not Started, Caught Up and On Hold
 

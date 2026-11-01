@@ -62,7 +62,7 @@ const BADGES = [
   { id: "eps1000", icon: "👑", hue: 50, name: "Series Royalty", desc: "Watch 1,000 episodes", goal: 1000, of: (s) => s.episodes },
 ];
 
-function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, username, onEditProfile, onOpenList, onSettings, onImportCsv }) {
+function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, username, onEditProfile, onOpenList, onSettings, onImportCsv, onOpenItem }) {
   // Runtimes and episode counts for everything that counts towards time.
   const pending = usePrefetchDetails(items.filter((i) => i.status !== "watchlist"), tmdbKey);
   const s = watchStats(items);
@@ -88,6 +88,9 @@ function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, usernam
         <StatTile label="Shows finished" value={s.showsDone} color="var(--ok)" icon={<CheckIcon size={15} />} />
         <StatTile label="Your average" value={s.rated ? (s.ratingSum / s.rated).toFixed(1) : "–"} color="var(--star)" icon={<StarIcon size={15} filled />} />
       </div>
+
+      <ActivitySection items={items} tmdbKey={tmdbKey} onOpenItem={onOpenItem} onImportCsv={onImportCsv} />
+      <div style={{ height: 16 }} />
 
       {genres.length > 0 && (
         <>
@@ -374,8 +377,8 @@ function WatchTimeCard({ s }) {
   const parts = [d && [d, "d"], (d || h) && [h, "h"], [m, "m"]].filter(Boolean);
   const share = s.minutes ? s.tvMin / s.minutes : 0;
   const legend = [
-    { l: "Shows", c: "var(--tv)", min: s.tvMin, n: plural(s.episodes, "episode") },
-    { l: "Movies", c: "var(--movie)", min: s.movieMin, n: plural(s.movies, "movie") },
+    { l: "Shows", c: "var(--chart-tv)", min: s.tvMin, n: plural(s.episodes, "episode") },
+    { l: "Movies", c: "var(--chart-movie)", min: s.movieMin, n: plural(s.movies, "movie") },
   ];
   return (
     <Card style={{ marginBottom: 10 }}>
@@ -392,8 +395,8 @@ function WatchTimeCard({ s }) {
         {Math.round(s.minutes / 60).toLocaleString("en-GB")} hours across {plural(s.titles, "title")}
       </div>
       <div aria-hidden style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", background: "var(--fill)", margin: "16px 0 12px" }}>
-        <span style={{ width: `${share * 100}%`, background: "var(--tv)", transition: "width 0.6s var(--ease-snappy)" }} />
-        <span style={{ width: `${s.minutes ? (1 - share) * 100 : 0}%`, background: "var(--movie)", transition: "width 0.6s var(--ease-snappy)" }} />
+        <span style={{ width: `${share * 100}%`, background: "var(--chart-tv)", transition: "width 0.6s var(--ease-snappy)" }} />
+        <span style={{ width: `${s.minutes ? (1 - share) * 100 : 0}%`, background: "var(--chart-movie)", transition: "width 0.6s var(--ease-snappy)" }} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         {legend.map((x) => (
