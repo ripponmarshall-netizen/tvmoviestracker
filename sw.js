@@ -10,8 +10,9 @@ const FONT_CACHE = "tvt-fonts-v1";
 // the next launch. Past IMG_MAX the oldest are dropped.
 const IMG_CACHE = "tvt-img-v1";
 const IMG_MAX = 600;
-// TMDB's image server, and AniList's (covers and banners for anime).
-const IMG_HOSTS = new Set(["image.tmdb.org", "s4.anilist.co"]);
+// TMDB's image server, AniList's (covers and banners for anime) and Open
+// Library's book covers.
+const IMG_HOSTS = new Set(["image.tmdb.org", "s4.anilist.co", "covers.openlibrary.org"]);
 
 // Precached on install, so the app opens offline after the first visit.
 // A file missing from this list is still cached the first time it loads.
@@ -33,6 +34,7 @@ const ASSETS = [
   "./profile.jsx",
   "./activity.jsx",
   "./importcsv.jsx",
+  "./books.jsx",
   "./app.jsx",
   "./icon.svg",
   "./icon-192.png",
@@ -42,7 +44,7 @@ const ASSETS = [
 
 // React, Supabase and Babel load from a CDN at pinned versions
 // (index.html). Those files never change, so they are cache-first. Calls
-// to Supabase, TMDB, TVmaze, Wikidata, Trakt and AniList pass straight through.
+// to Supabase, TMDB, TVmaze, Wikidata, Trakt, AniList and Open Library pass straight through.
 const CDN_ASSETS = [
   "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
   "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js",

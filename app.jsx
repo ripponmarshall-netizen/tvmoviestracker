@@ -3,7 +3,7 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 const APP_NAME = "Nostalgiaa";
-const APP_VERSION = "1.11.0";
+const APP_VERSION = "1.12.0";
 // The maker's tag, in the footer of Profile and in Settings → About.
 const MAKER_TAG = "Workflow Coaching and Optimization";
 
@@ -23,12 +23,16 @@ const STATUSES = [
 const TABS = [
   { v: "watching", l: "Watching", icon: PlayIcon },
   { v: "explore", l: "Explore", icon: CompassIcon },
+  { v: "books", l: "Books", icon: BookIcon },
   { v: "profile", l: "Profile", icon: PersonIcon },
 ];
+// Shows and movies: the kinds the edit sheet offers. Books (books.jsx)
+// are a third kind with their own tab and sheet.
 const KINDS = [
   { v: "tv", l: "Show" },
   { v: "movie", l: "Movie" },
 ];
+const ALL_KINDS = [...KINDS, { v: "book", l: "Book" }];
 const FILTERS = [
   { v: "all", l: "All" },
   { v: "tv", l: "Shows" },
@@ -70,9 +74,10 @@ function normaliseItem(x) {
   if (!title) return null;
   const now = nowIso();
   const updated = typeof x.updated === "string" ? x.updated : now;
+  const kind = pick(x.kind, ALL_KINDS, "tv");
   return {
     id: typeof x.id === "string" && x.id ? x.id : newId(),
-    kind: pick(x.kind, KINDS, "tv"),
+    kind,
     title,
     status: pick(x.status, STATUSES, "watchlist"),
     // TV progress: the last episode watched (episode 0 = season not started).
@@ -93,10 +98,12 @@ function normaliseItem(x) {
     // A show you're watching again: the last episode rewatched (episode 0 =
     // not started), apart from your progress, which a rewatch leaves alone.
     // null when not rewatching.
-    rewatch: x.kind !== "movie" && x.rewatch && typeof x.rewatch === "object"
+    rewatch: kind === "tv" && x.rewatch && typeof x.rewatch === "object"
       ? { season: clampInt(x.rewatch.season ?? 1, 1, 999), episode: clampInt(x.rewatch.episode ?? 0, 0, 9999) } : null,
     // Rewatches finished (a show watched through again, a movie watched again).
     rewatches: clampInt(x.rewatches ?? 0, 0, 999),
+    // A book's author, pages, Open Library link and cover (books.jsx).
+    ...(kind === "book" ? bookFields(x) : {}),
   };
 }
 /* A list from storage or a backup file: valid items only, unique ids
@@ -117,7 +124,7 @@ const touch = (item) => ({ ...item, updated: nowIso() });
 /* An edit that moves a title on (a later episode, or into Watching) counts
    as watching it, which keeps it in Up Next rather than the archive. A
    rating or a note doesn't. */
-const progressRank = (i) => (i.kind === "tv" ? i.season * 10000 + i.episode : 0);
+const progressRank = (i) => (i.kind === "tv" ? i.season * 10000 + i.episode : i.kind === "book" ? i.page : 0);
 function stampWatch(before, after, { log = true } = {}) {
   if (!before) return after;
   // The episode or movie goes into the Activity history (watchlog.jsx).
@@ -190,6 +197,8 @@ function App() {
   const [editing, setEditing] = useState(null); // the item open in the edit sheet
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
+  const [book, setBook] = useState(null); // the book open in the book sheet
+  const [bookImportOpen, setBookImportOpen] = useState(false);
   // The latest list, for timers (fold-away, Undo) and sync merges. Every
   // change goes through updateItems, which updates it at once rather than
   // on the next render, so a merge never works from a stale copy.
@@ -206,7 +215,12 @@ function App() {
   useProfileField(userId, "tmdb_key", tmdbKey, setTmdbKey);
   useProfileField(userId, "avatar", avatar, setAvatar, cleanAvatar);
   useProfileField(userId, "username", username, setUsername, cleanUsername);
-  usePosterBackfill(items, tmdbKey, updateItems);
+  // Books live in the same list (so they sync and back up), but the TV
+  // and movie screens, TMDB lookups, imports and stats only see `media`.
+  const media = useMemo(() => items.filter((i) => !isBook(i)), [items]);
+  const books = useMemo(() => items.filter(isBook), [items]);
+  usePosterBackfill(media, tmdbKey, updateItems);
+  useBookBackfill(books, updateItems);
 
   // The app is on screen: hand the loading screen over to the header logo.
   useEffect(() => { window.tvtSplashDone?.(); }, []);
@@ -263,8 +277,51 @@ function App() {
   const moveTo = (id, status) => {
     const before = findItem(id);
     if (!before || before.status === status) return;
-    replace(touch(stampWatch(before, { ...before, status })));
-    showToast(`Moved to ${statusLabel(status)}`, { action: { label: "Undo", onClick: () => replace(touch(before)) } });
+    const book = isBook(before);
+    replace(touch(stampWatch(before, { ...before, ...(book ? bookStatusPatch(before, status) : { status }) })));
+    showToast(`Moved to ${book ? bookStatusLabel(status) : statusLabel(status)}`, { action: { label: "Undo", onClick: () => replace(touch(before)) } });
+  };
+
+  /* ============ Books ============ */
+  const openBook = (b, opts = {}) => setBook({ ...b, ...(b.id && findItem(b.id) ? { itemId: b.id } : {}), ...opts });
+  // A book from Open Library's search into the library.
+  const addBook = (tile, status) => {
+    const now = nowIso();
+    const item = normaliseItem(touch({
+      ...blankItem(status), kind: "book", title: tile.title, author: tile.author, olKey: tile.olKey, cover: tile.cover,
+      pages: tile.pages, isbn: tile.isbn, year: tile.year, lastWatched: status === "watching" ? now : "",
+      ...(status === "watched" ? { finished: now, page: tile.pages } : {}),
+    }));
+    if (!item) return;
+    updateItems((prev) => [item, ...prev]);
+    showToast(`Added to ${bookStatusLabel(status)}`, { action: { label: "Undo", onClick: () => updateItems((prev) => prev.filter((i) => i.id !== item.id)) } });
+  };
+  // One Open Library hasn't got: added as typed, its sheet open to fill in.
+  const addBookByHand = (title) => {
+    const item = normaliseItem(touch({ ...blankItem("watchlist"), kind: "book", title }));
+    if (!item) return;
+    updateItems((prev) => [item, ...prev]);
+    setBook({ itemId: item.id, editDetails: true });
+  };
+  const bookMenu = (b) => {
+    const item = findItem(b.id) || b;
+    showMenu({
+      title: item.title,
+      sub: [item.author, bookStatusLabel(item.status), bookProgressLabel(item)].filter(Boolean).join(" · "),
+      actions: [
+        item.status === "watching" && { label: "Update Page…", sub: "Log where you've got to", icon: <BookIcon size={18} />, run: () => openBook(item, { focusPage: true }) },
+        item.status !== "watched" && { label: "Finished It", sub: "Move to Read", icon: <CheckCircleIcon size={18} />, run: () => moveTo(item.id, "watched") },
+        item.status !== "watching" && { label: item.status === "watched" ? "Read It Again" : "Start Reading", sub: item.status === "watched" ? "Back to Reading, from page 1" : null, icon: <BookIcon size={18} />, run: () => moveTo(item.id, "watching") },
+        item.status !== "watchlist" && { label: "Move to Want to Read", sub: "For later", icon: <BookmarkIcon size={18} />, run: () => moveTo(item.id, "watchlist") },
+        { label: "Edit Details", icon: <PencilIcon size={18} />, run: () => openBook(item, { editDetails: true }) },
+        { label: "Remove from Library", danger: true, icon: <TrashIcon size={18} />, run: () => deleteItem(item.id) },
+      ],
+    });
+  };
+  // A Goodreads or StoryGraph import: new books and updated ones, with Undo.
+  const importBooks = (plan) => {
+    const n = plan.added.length + plan.changed.size;
+    replaceAll([...plan.added, ...itemsRef.current.map((i) => plan.changed.get(i.id) || i)], `Imported ${plural(n, "book")}`);
   };
 
   // A title from TMDB (Explore, "More like this") into the library.
@@ -506,7 +563,8 @@ function App() {
     const logged = plan.watchLog?.length ? logWatches(plan.watchLog) : 0;
     // A file read again may change nothing itself, only start matching or
     // fill in the Activity history.
-    if (n) replaceAll(plan.items, `Imported ${plural(n, "title")}`);
+    // Plans are made from shows and movies only: keep the books as they are now.
+    if (n) replaceAll([...plan.items.filter((i) => !isBook(i)), ...itemsRef.current.filter(isBook)], `Imported ${plural(n, "title")}`);
     else if (plan.toLink.length && tmdbKey) showToast(`Matching ${plural(plan.toLink.length, "title")} on TMDB…`);
     else if (plan.caughtUp.length && tmdbKey) showToast("Catching up shows…");
     else if (logged) showToast(`Added ${logged.toLocaleString("en-GB")} watch${logged === 1 ? "" : "es"} to Activity`);
@@ -531,13 +589,16 @@ function App() {
   // Pull to refresh: sync with your account, and fetch afresh from TMDB
   // what's on screen and what you're watching.
   const refresh = async () => {
-    const watchingNow = itemsRef.current.filter((i) => i.status === "watching");
+    const watchingNow = itemsRef.current.filter((i) => i.status === "watching" && !isBook(i));
     const [tmdb, ani] = await Promise.allSettled([refreshTmdb(tmdbKey, watchingNow), refreshAnilist(), userId ? sync.syncNow() : null]);
     const failed = [tmdb, ani].find((r) => r.status === "rejected");
     if (failed) showToast(failed.reason?.message || "Couldn't refresh");
   };
 
-  const counts = useMemo(() => ({ watching: items.filter((i) => i.status === "watching").length }), [items]);
+  const counts = useMemo(() => ({
+    watching: media.filter((i) => i.status === "watching").length,
+    books: books.filter((i) => i.status === "watching").length,
+  }), [media, books]);
 
   const isNew = editing && !items.some((i) => i.id === editing.id);
   const openSettings = () => setSettingsOpen(true);
@@ -546,23 +607,28 @@ function App() {
   let screen;
   if (list) {
     screen = (
-      <ListView key={`list-${list}`} status={list} items={items} filter={filter} setFilter={setFilter}
+      <ListView key={`list-${list}`} status={list} items={media} filter={filter} setFilter={setFilter}
         onOpen={openItem} onQuick={applyQuick} onMore={itemMenu} onAdd={() => setEditing(blankItem(list))}
         back={{ label: TABS.find((t) => t.v === tab)?.l, onClick: () => setList(null) }} />
     );
   } else if (tab === "explore") {
     screen = (
-      <ExploreView key="explore" items={items} tmdbKey={tmdbKey} kind={explore} setKind={setExplore}
+      <ExploreView key="explore" items={media} tmdbKey={tmdbKey} kind={explore} setKind={setExplore}
         query={query} setQuery={setQuery} onOpen={openTile} onAdd={(t) => addTitle(t, "watchlist")} onSettings={openSettings} />
+    );
+  } else if (tab === "books") {
+    screen = (
+      <BooksView key="books" books={books} onOpen={openBook} onAdd={addBook} onAddByHand={addBookByHand}
+        onMove={moveTo} onMore={bookMenu} onImport={() => setBookImportOpen(true)} />
     );
   } else if (tab === "profile") {
     screen = (
-      <ProfileView key="profile" items={items} tmdbKey={tmdbKey} session={session} sync={sync} avatar={avatar} setAvatar={setAvatar}
+      <ProfileView key="profile" items={media} tmdbKey={tmdbKey} session={session} sync={sync} avatar={avatar} setAvatar={setAvatar}
         username={username} onEditProfile={() => setProfileOpen(true)} onOpenList={setList} onSettings={openSettings} onImportCsv={() => setCsvOpen(true)} onOpenItem={openItem} />
     );
   } else {
     screen = (
-      <WatchingView key="watching" items={items} tmdbKey={tmdbKey} onOpenItem={openItem} onOpenTile={openTile}
+      <WatchingView key="watching" items={media} tmdbKey={tmdbKey} onOpenItem={openItem} onOpenTile={openTile}
         onAdvance={advance} onSeeAll={setList} onExplore={() => go("explore")} onMore={itemMenu} onBulk={bulkMenu} onSettings={openSettings} />
     );
   }
@@ -581,7 +647,7 @@ function App() {
       {detail && (
         <TitleSheet
           target={detail}
-          items={items}
+          items={media}
           tmdbKey={tmdbKey}
           region={region}
           onStatus={(t, status) => {
@@ -621,7 +687,8 @@ function App() {
           session={session}
           sync={sync}
           items={items}
-          getItems={() => itemsRef.current}
+          media={media}
+          getItems={() => itemsRef.current.filter((i) => !isBook(i))}
           // Restored titles count as edited now, so they win over newer
           // versions elsewhere: the backup is what you asked for.
           onImport={(list) => replaceAll(list.map(touch), `Imported ${plural(list.length, "title")}`)}
@@ -631,7 +698,11 @@ function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
-      {csvOpen && <CsvImportSheet items={items} tmdbKey={tmdbKey} onImport={importPlan} onClose={() => setCsvOpen(false)} />}
+      {book && (
+        <BookSheet target={book} books={books} onAdd={addBook} onStatus={moveTo} onPatch={patchItem} onDelete={deleteItem} onClose={() => setBook(null)} />
+      )}
+      {bookImportOpen && <BookImportSheet books={books} onImport={importBooks} onClose={() => setBookImportOpen(false)} />}
+      {csvOpen && <CsvImportSheet items={media} tmdbKey={tmdbKey} onImport={importPlan} onClose={() => setCsvOpen(false)} />}
       {profileOpen && (
         <ProfileSheet username={username} setUsername={setUsername} avatar={avatar} setAvatar={setAvatar}
           email={session?.user?.email} signedIn={!!session} onClose={() => setProfileOpen(false)} />
@@ -1042,7 +1113,7 @@ function RatingInput({ value, onChange }) {
 }
 
 /* ============ Settings ============ */
-function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion, avatar, username, onEditProfile, session, sync, items, getItems, onImport, onImportCsv, onImportPlan, onErase, onClose }) {
+function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion, avatar, username, onEditProfile, session, sync, items, media, getItems, onImport, onImportCsv, onImportPlan, onErase, onClose }) {
   const { ref, closing, close } = useModalDismiss(onClose);
   const fileRef = useRef(null);
   const [testing, setTesting] = useState(false);
@@ -1158,7 +1229,7 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
           <Picker label="Country" value={region} options={regionOpts} onChange={(v) => setRegion(String(v))} />
         </SettingsGroup>
         <SettingsGroup id="trakt" icon={<ActivityIcon size={16} />} tint="#ed1c24" title="Trakt" summary={trakt.token?.access ? "Connected" : trakt.id ? "Client ID added" : "Not set up"}>
-          <TraktSettings items={items} onImport={(plan) => { onImportPlan(plan); close(); }} />
+          <TraktSettings items={media} onImport={(plan) => { onImportPlan(plan); close(); }} />
         </SettingsGroup>
         <SettingsGroup id="anilist" icon={<AnimeIcon size={16} />} tint="#02a9ff" title="AniList" summary={ani.user ? `@${String(ani.user).trim().replace(/^@/, "")}` : "Anime"}>
           <AnilistSettings getItems={getItems} tmdbKey={tmdbKey} onImport={(plan) => { onImportPlan(plan); close(); }} />
@@ -1192,11 +1263,11 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
         <SettingsGroup id="about" icon={<img src="icon.svg" alt="" width="18" height="18" style={{ borderRadius: 5 }} />} tint="var(--accent)" title={`About ${APP_NAME}`} summary={`v${APP_VERSION}`}>
           <div style={note}>
             Track the shows and movies you're watching, want to watch and have watched, with Up Next, your watch time and activity,
-            synced across your iPhone and iPad.
+            and the books you're reading, synced across your iPhone and iPad.
           </div>
           <MakerTag align="left" />
         </SettingsGroup>
-        <SettingsGroup id="credits" icon={<InfoIcon size={16} />} tint="#5e5ce6" title="Credits" summary="TMDB · AniList · TVmaze">
+        <SettingsGroup id="credits" icon={<InfoIcon size={16} />} tint="#5e5ce6" title="Credits" summary="TMDB · AniList · Open Library">
           <Credits />
         </SettingsGroup>
       </SettingsSection>
@@ -1209,7 +1280,7 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
       </div>
       {/* TMDB's terms ask apps using its API to say this where it can be seen. */}
       <div style={{ fontSize: 11, color: "var(--ink-faint)", margin: "12px auto 0", lineHeight: 1.45, textAlign: "center", maxWidth: 340 }}>
-        This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming data from JustWatch. Schedules from TVmaze, under CC BY-SA 4.0. Facts from Wikidata (CC0). Anime data from AniList.
+        This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming data from JustWatch. Schedules from TVmaze, under CC BY-SA 4.0. Facts from Wikidata (CC0). Anime data from AniList. Book data from Open Library.
       </div>
     </ModalFrame>
   );
@@ -1266,6 +1337,12 @@ const CREDITS = [
     what: "Community ratings and watch counts, and importing your Trakt history, watchlist and ratings.",
     terms: "Uses the Trakt API with your own API app. Not endorsed by Trakt.",
     links: [["API", "https://trakt.docs.apiary.io"], ["Terms", "https://trakt.tv/terms"]],
+  },
+  {
+    name: "Open Library", href: "https://openlibrary.org",
+    what: "Books: search by title, author or ISBN, covers, page counts and descriptions.",
+    terms: "Uses Open Library's free API, from the Internet Archive. Not endorsed by Open Library.",
+    links: [["API", "https://openlibrary.org/developers/api"], ["Licensing", "https://openlibrary.org/developers/licensing"]],
   },
   {
     name: "Supabase", href: "https://supabase.com",

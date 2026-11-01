@@ -282,7 +282,10 @@ function combineRecs(recs) {
 function readCsvText(name, text, role) {
   const f = { id: newId(), name, role: "library", recs: [], skipped: 0, error: "", text };
   try {
-    const parsed = csvRecords(parseCsv(text));
+    const rows = parseCsv(text);
+    // A Goodreads or StoryGraph export would come in as shows and movies.
+    if (rows.slice(0, 5).some(looksLikeBookCsv)) return { ...f, error: "A book export: import it from the Books tab" };
+    const parsed = csvRecords(rows);
     if (!parsed) return { ...f, error: "No Title or Name column found" };
     return { ...f, ...parsed, role: role || guessRole(name) };
   } catch {

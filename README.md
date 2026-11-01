@@ -1,9 +1,10 @@
 # Nostalgiaa
 
-A small installable web app (PWA) for keeping track of the shows and movies you're **watching**, **want to watch** and have **watched**. Three tabs along the bottom:
+A small installable web app (PWA) for keeping track of the shows and movies you're **watching**, **want to watch** and have **watched**, and the books you're **reading**. Four tabs along the bottom:
 
 - **Watching**: *Up Next*, the next episode of what you've watched in the last 30 days (rolling on to the next season); *Not Started*, shows with no episode ticked yet; *Caught Up*, shows you've seen everything out of; your watchlist, titles like your recent ones, what you've finished lately and *On Hold*, what you haven't watched in a while. Each list folds away under its header, and its **•••** menu acts on all its shows (mark all caught up, move all to Watched or the Watchlist). Every row has a **•••** menu too: tick the next episode, *I'm Caught Up* (jump to the latest episode out), choose the episode you're on, move or remove it.
 - **Explore**: what's trending and popular on TMDB, for shows, movies or both, with search. **Anime** swaps in AniList's shelves (trending, airing this season with each show's next-episode countdown, next season, all-time popular, top rated, films) and searches AniList, in English or Japanese names. A **+** on any search result puts it on your Watchlist without opening it.
+- **Books**: what you're *Reading* (the page you're on, out of how many, with a progress bar), *Want to Read* and *Read*, with how many books and pages you've read this year. Search [Open Library](https://openlibrary.org) by title, author or ISBN; **+** puts a book on Want to Read, and one it hasn't got can be added by hand. Tap a book for its sheet: status, your page (with −10/+10/+25/+50 and *I've Finished It*), rating, note, its description and its details to edit. **Import from Goodreads or StoryGraph** brings in either's CSV export.
 - **Profile**: your username and picture (Edit Profile), with a small green tick beside the name once synced (tap it for details), library counts, total watch time split by shows and movies, top genres, awards for milestones, your library's lists (each with search and a sort dropdown) and CSV import. Settings is the gear beside the Profile title, the only button at the top of any screen; the header is just the logo and name.
 
 Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, *Where to Watch* (the services with it in your country, from JustWatch), a show's schedule from TVmaze (your next episode by name, the next to air in your time zone, the latest out, and its days and channel), *Did You Know* from Wikidata (awards, box office against budget, what it's based on, who made it, where it was filmed and set, its series), *On Trakt* (Trakt's rating, watchers and plays), *On AniList* for anime (score, rank, studio, source, season, the next episode to the minute, tags, and its prequels, sequels and spin-offs, each a tap away) and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations and sheets you can pull down to close. The loading screen is a strip of film (its frames your own posters) rolling up the screen behind the logo, an old television with a sunset on its screen; once the app is ready the film whooshes off the top and the splash cross-fades into the app as it rises in.
@@ -43,6 +44,14 @@ Nothing to set up for the title sheet or Explore → Anime: [AniList](https://an
 
 **Settings → AniList → Import** brings in a public AniList list by username (needs the TMDB key). AniList has one entry per season or cour; TMDB one show with seasons. Each entry goes to its TMDB show (its own match, else its prequel's), your episodes across the seasons before it on that show are added up, and the total is laid onto TMDB's seasons, so *Season 2, episode 10 of 23* after a 24-episode first season lands on S2 · E10. The furthest entry decides the status: watching, paused or dropped are Watching (old ones fall into On Hold), planning is the Watchlist, completed is Watched only once TMDB has nothing more out. Scores out of 100 become stars; a finished movie's completion date goes into Activity. Specials, OVAs and dropped movies are left out, and the confirm dialog says how many didn't match. It goes through the same merge as a CSV import, with Undo.
 
+### Books (Open Library)
+
+Nothing to set up: [Open Library](https://openlibrary.org/developers/api)'s API is free and needs no key. Search uses `/search.json`, an ISBN it doesn't index falls back to `/isbn/{isbn}.json`, a book's sheet loads its work (`/works/OL…W.json`) for the description, and covers come from `covers.openlibrary.org` by cover id (covers by ISBN are rate-limited; by id they aren't).
+
+Books are items like any other (`kind: "book"`), so they sync, back up and undo the same way; the database needs no change. `App` hands the TV and movie screens, TMDB lookups, the CSV, Trakt and AniList imports, Profile's stats and Activity only shows and movies, so a book never reaches TMDB or counts as watch time.
+
+**Import from Goodreads or StoryGraph** (the Books tab) reads Goodreads' *Export Library* CSV (Exclusive Shelf, My Rating, ISBN13, Date Read, My Review…) or StoryGraph's (Read Status, Star Rating, ISBN/UID, Last Date Read…). read → Read, currently-reading and paused → Reading, to-read and other shelves → Want to Read; did-not-finish is left out. Books you have are matched by ISBN, else title and author, and move forward but never back, gaining a rating, date read, pages or note they lacked. Afterwards books without an Open Library link are looked up there one at a time in the background (by ISBN, else title and author) for a cover and page count; a miss isn't tried again (`tvt:olmiss:v1`). The CSV import under Settings turns a book export away rather than make shows of it.
+
 ### Trakt
 
 1. Make a free API app at [trakt.tv → Your API Apps](https://trakt.tv/oauth/applications/new). Redirect URI: `urn:ietf:wg:oauth:2.0:oob`. JavaScript (CORS) origins: your Pages address, e.g. `https://<your-user>.github.io` (without it, the browser is refused).
@@ -80,6 +89,7 @@ Then **Settings → Account → Sign in**. Sign-in uses a password rather than a
 | `profile.jsx` | The Profile screen: the username (`cleanUsername`, `ProfileSheet`), the profile picture (`avatarFromFile`, `AvatarPicker`), `watchStats`, the `BADGES` list, the library rows. |
 | `activity.jsx` | Profile's Activity section: the calendar heatmap and streaks (`activityStats`, which sets aside watches marked in bulk), When You Watch, Coming Up, Your Eras and Your Ratings, and the shared `ColumnChart`. |
 | `watchlog.jsx` | The watch history behind Activity: one dated entry per episode or movie, in IndexedDB on the device (`logWatches`, `logWatchStep`, `useWatchLog`). |
+| `books.jsx` | Books: Open Library search and lookups (`olSearch`, `useOlWork`, `useBookBackfill`), the Books tab (`BooksView`), the book sheet (`BookSheet`, with `PageSection`), book fields (`bookFields`, `bookStatusPatch`), matching (`findBook`) and the Goodreads and StoryGraph import (`bookRecords`, `planBookImport`, `BookImportSheet`). |
 | `importcsv.jsx` | CSV import: the parser, column matching (`CSV_HEADS`), merging into the library (`planImport`), matching titles on TMDB afterwards, and the import sheet. |
 | `app.jsx` | The data model, routing between tabs, the "•••" menus (`itemMenu`, `bulkMenu`), catching up (`catchUp`), the list screens, add/edit sheet, settings (with `CREDITS`, the attributions) and tab bar. |
 | `supabase/schema.sql` | The tables and row-level security for sync. |
@@ -119,7 +129,7 @@ Signed in, each title is also a row in `tvt_items`, with the whole item in a `da
 
 ```js
 {
-  id, kind: "tv" | "movie", title,
+  id, kind: "tv" | "movie" | "book", title,
   status: "watching" | "watchlist" | "watched",
   season, episode,   // TV only: last episode watched (episode 0 = not started)
   rating,            // 0–5 in half stars, 0 = unrated
@@ -129,6 +139,14 @@ Signed in, each title is also a row in `tvt_items`, with the whole item in a `da
   lastWatched,       // ISO date you last moved it on ("" = never); Up Next vs On Hold
   rewatch,           // { season, episode } while rewatching a show, else null
   rewatches          // rewatches finished (a show through again, a movie again)
+}
+// A book (kind: "book") has the same status values, shown as Reading,
+// Want to Read and Read, and also:
+{
+  author, page,      // the last page read (0 = not started)
+  pages,             // total pages (0 = not known); an ebook can use 100 for percent
+  olKey, cover,      // Open Library work ("/works/OL…W") and cover id; "" / null when typed in
+  isbn, finished     // ISO date it moved to Read, for "read this year"
 }
 ```
 
