@@ -3,6 +3,9 @@
 const { useState: useStateB, useMemo: useMemoB, useRef: useRefB } = React;
 
 const titleKey = (kind, tmdbId) => `${kind}:${tmdbId}`;
+/* A React key for a card: AniList's id where it has one (two AniList
+   seasons can share one TMDB show). */
+const tileKey = (t) => (t.anilistId ? `a:${t.anilistId}` : titleKey(t.kind, t.tmdbId));
 const byRecent = (list) => [...list].sort((a, b) => b.updated.localeCompare(a.updated));
 const PAGE_PAD = "8px 16px calc(120px + var(--safe-bottom))";
 
@@ -12,10 +15,11 @@ function useLibraryIndex(items) {
 }
 
 /* A 16:9 still filling its (positioned) parent: the TMDB backdrop, else
-   the poster, over a gradient in the title's colour. */
-function Backdrop({ path, poster, title, size = "w780" }) {
+   a banner by URL (AniList's), else the poster or cover, over a gradient
+   in the title's colour. */
+function Backdrop({ path, url, poster, img, title, size = "w780" }) {
   const [failed, setFailed] = useStateB("");
-  const src = path ? backdropUrl(path, size) : poster ? posterUrl(poster, "w342") : "";
+  const src = path ? backdropUrl(path, size) : url || (poster ? posterUrl(poster, "w342") : img || "");
   const hue = titleHue(title || "");
   return (
     <span aria-hidden style={{
@@ -48,6 +52,12 @@ function StatusBadge({ status }) {
 function tileMeta(t) {
   if (t.date && Date.parse(t.date) > Date.now()) return fmtDate(t.date);
   return [t.votes ? `★ ${t.vote.toFixed(1)}` : "", t.year].filter(Boolean).join(" · ");
+}
+
+/* The same for a card from AniList: when its next episode airs, if it's
+   airing. */
+function animeMeta(t) {
+  return t.next ? `Ep ${t.next.ep} ${fmtCountdown(t.next.at)}` : tileMeta(t);
 }
 
 /* A poster card for a shelf: tap to open the title's sheet. */
@@ -183,7 +193,9 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
   // the list screens), so a card you tick doesn't jump under your finger.
   // New ones go on top.
   const orderRef = useRefB(null);
-  if (!orderRef.current) orderRef.current = byWatched(watching).map((i) => i.id);
+  // A batch arriving while you're here (a first sync, an import) sets the
+  // order afresh, rather than leave the newcomers in no order at the top.
+  if (!orderRef.current || watching.filter((i) => !orderRef.current.includes(i.id)).length > 3) orderRef.current = byWatched(watching).map((i) => i.id);
   const ordered = [...watching].sort((a, b) => orderRef.current.indexOf(a.id) - orderRef.current.indexOf(b.id));
   const now = Date.now();
   const dOf = (i) => cachedDetails(i.kind, i.tmdbId);
@@ -301,9 +313,10 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
    button (buttons can't nest), over its corners. */
 function UpNextHero({ item, d, onOpen, onTick, onMore }) {
   const info = upNextInfo(item, d);
+  const press = useLongPress(onMore);
   return (
     <div style={{ position: "relative", marginBottom: 10 }}>
-      <button type="button" className="tvt-wide-btn" onClick={() => onOpen(item)} style={{
+      <button type="button" className="tvt-wide-btn tvt-hold" ref={press.ref} onClick={press.guard(() => onOpen(item))} style={{
         position: "relative", display: "block", width: "100%", aspectRatio: "16 / 10", borderRadius: 22, overflow: "hidden",
         border: "none", padding: 0, margin: 0, background: "var(--bg-2)", color: "#fff", textAlign: "left", font: "inherit", cursor: "pointer",
         boxShadow: "var(--shadow)",
@@ -325,7 +338,7 @@ function UpNextHero({ item, d, onOpen, onTick, onMore }) {
         background: "rgba(0,0,0,0.38)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       }}><MoreIcon size={18} /></button>
       {info.canTick && (
-        <button type="button" onClick={onTick} aria-label={info.tick === "Watched" ? `Mark ${info.line} watched` : `Finish ${item.title}`} style={{
+        <button type="button" onClick={onTick} className="tvt-tick" aria-label={info.tick !== "Watched" ? `Finish ${item.title}` : item.kind === "tv" ? `Mark ${item.title} ${info.line} watched` : `Mark ${item.title} watched`} style={{
           position: "absolute", right: 14, bottom: 14, display: "inline-flex", alignItems: "center", gap: 6,
           padding: "10px 15px", minHeight: 40, borderRadius: 999, border: "none",
           background: "#fff", color: "#000", fontWeight: 600, fontSize: 14, cursor: "pointer",
@@ -342,9 +355,10 @@ function UpNextHero({ item, d, onOpen, onTick, onMore }) {
    note under the episode. */
 function UpNextRow({ item, d, onOpen, onTick, onMore, lastWatched }) {
   const info = upNextInfo(item, d);
+  const press = useLongPress(onMore);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 18, padding: "10px 8px 10px 10px" }}>
-      <button type="button" className="tvt-wide-btn" onClick={() => onOpen(item)} style={{
+      <button type="button" className="tvt-wide-btn tvt-hold" ref={press.ref} onClick={press.guard(() => onOpen(item))} style={{
         flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12,
         background: "transparent", border: "none", padding: 0, margin: 0,
         textAlign: "left", cursor: "pointer", color: "inherit", font: "inherit",
@@ -362,7 +376,7 @@ function UpNextRow({ item, d, onOpen, onTick, onMore, lastWatched }) {
         </span>
       </button>
       {info.canTick && (
-        <button type="button" onClick={onTick} aria-label={info.tick === "Watched" ? `Mark ${item.title} ${info.line} watched` : `Finish ${item.title}`} style={{
+        <button type="button" onClick={onTick} className="tvt-tick" aria-label={info.tick !== "Watched" ? `Finish ${item.title}` : item.kind === "tv" ? `Mark ${item.title} ${info.line} watched` : `Mark ${item.title} watched`} style={{
           ...iconBtn(40), background: "color-mix(in oklab, var(--accent) 18%, transparent)", color: "var(--accent)",
         }}><CheckIcon size={18} /></button>
       )}
@@ -379,12 +393,6 @@ function fmtAgo(t, now = Date.now()) {
   if (days < 60) return `${Math.round(days / 7)} weeks ago`;
   if (days < 365) return `${Math.round(days / 30)} months ago`;
   return `over ${plural(Math.floor(days / 365), "year")} ago`;
-}
-
-/* The line under a show you haven't started: its seasons and year. */
-function seasonsLine(item, d) {
-  const n = d?.seasons ? Object.keys(d.seasons).length : 0;
-  return [n ? plural(n, "season") : "", item.year].filter(Boolean).join(" · ") || "Show";
 }
 
 /* "Because you watched X": TMDB's recommendations for one of your recent
@@ -439,27 +447,56 @@ const EXPLORE = {
   },
 };
 
-function ExploreView({ items, tmdbKey, kind, setKind, query, setQuery, onOpen, onSettings }) {
+function ExploreView({ items, tmdbKey, kind, setKind, query, setQuery, onOpen, onAdd, onSettings }) {
   const lib = useLibraryIndex(items);
   const [attempt, setAttempt] = useStateB(0);
+  const anime = kind === "anime";
   const searching = query.trim().length >= 2;
-  const search = useTmdbSearch(query, tmdbKey, searching, 20);
+  // Anime searches AniList (it knows romaji names); the rest, TMDB.
+  const tmdbSearch = useTmdbSearch(query, tmdbKey, searching && !anime, 20);
+  const aniSearch = useAnilistSearch(query, searching && anime);
+  const search = anime ? aniSearch : tmdbSearch;
   const plan = EXPLORE[kind] || EXPLORE.all;
-  const statusOf = (t) => lib.get(titleKey(t.kind, t.tmdbId))?.status;
+  const statusOf = (t) => (t.tmdbId ? lib.get(titleKey(t.kind, t.tmdbId))?.status : undefined);
+  const toggle = (
+    <div style={{ marginBottom: 20 }}>
+      <SegToggle full options={EXPLORE_KINDS} value={kind} onChange={setKind} label="Show" />
+    </div>
+  );
 
-  if (!tmdbKey) {
+  // An AniList card is matched to TMDB first (for its poster, episodes and
+  // tracking), where there's a key; a show you already have isn't added twice.
+  const quickAdd = async (t) => {
+    let tile = t;
+    if (t.anilistId && !t.tmdbId && tmdbKey) {
+      const r = await resolveAnilistToTmdb(t.anilistId, tmdbKey).catch(() => null);
+      if (r) {
+        const d = await loadDetails(r.kind, r.tmdbId, tmdbKey).catch(() => cachedDetails(r.kind, r.tmdbId));
+        tile = { ...t, ...r, title: d?.title || t.title, poster: d?.poster || "", year: (d?.date || "").slice(0, 4) || t.year };
+      }
+    }
+    const have = tile.tmdbId && lib.get(titleKey(tile.kind, tile.tmdbId));
+    if (have) { showToast(`“${have.title}” is already in ${statusLabel(have.status)}`); return; }
+    onAdd(tile);
+  };
+
+  if (!tmdbKey && !anime) {
     return (
       <main className="tvt-view tvt-page" style={{ padding: PAGE_PAD }}>
         <ScreenTitle title="Explore" />
+        {toggle}
         <Card style={{ textAlign: "center", padding: "30px 20px" }}>
           <span className="tvt-pop" style={{ width: 56, height: 56, borderRadius: 999, background: "var(--fill)", color: "var(--ink-dim)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12, animationDelay: "0.2s" }}>
             <CompassIcon size={28} />
           </span>
           <div style={{ fontSize: 16, fontWeight: 600 }}>Explore needs a TMDB key</div>
           <div style={{ fontSize: 13.5, color: "var(--ink-dim)", lineHeight: 1.5, margin: "6px auto 16px", maxWidth: 300 }}>
-            It's free: make an account at themoviedb.org, then paste your API key in Settings to see what's trending.
+            It's free: make an account at themoviedb.org, then paste your API key in Settings to see what's trending. Anime works without one.
           </div>
-          <button type="button" onClick={onSettings} style={accentBtn()}>Open Settings</button>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+            <button type="button" onClick={onSettings} style={accentBtn()}>Open Settings</button>
+            <button type="button" onClick={() => setKind("anime")} style={ghostBtn()}>Browse Anime</button>
+          </div>
         </Card>
       </main>
     );
@@ -468,21 +505,61 @@ function ExploreView({ items, tmdbKey, kind, setKind, query, setQuery, onOpen, o
   return (
     <main className="tvt-view tvt-page" style={{ padding: PAGE_PAD }}>
       <ScreenTitle title="Explore" />
-      <SearchField value={query} onChange={setQuery} />
-      <div style={{ marginBottom: 20 }}>
-        <SegToggle full options={FILTERS} value={kind} onChange={setKind} label="Show" />
-      </div>
+      <SearchField value={query} onChange={setQuery} placeholder={anime ? "Anime, in English or Japanese" : undefined} />
+      {toggle}
       {searching ? (
-        <SearchList state={search} kind={kind} statusOf={statusOf} onOpen={onOpen} />
+        <SearchList key={anime ? "anime" : "tmdb"} state={search} kind={anime ? "all" : kind} source={anime ? "AniList" : "TMDB"} statusOf={statusOf} onOpen={onOpen} onAdd={quickAdd} />
+      ) : anime ? (
+        <AnimeShelves key={"anime" + attempt} statusOf={statusOf} onOpen={onOpen} />
       ) : (
         // Keyed, so the shelves rise in afresh for a new filter or a retry.
         <ExploreShelves key={kind + attempt} plan={plan} tmdbKey={tmdbKey} statusOf={statusOf} onOpen={onOpen} onRetry={() => setAttempt((a) => a + 1)} />
       )}
       {/* TMDB's terms ask apps using its API to say this. */}
       <div style={{ fontSize: 11.5, color: "var(--ink-faint)", textAlign: "center", lineHeight: 1.4, margin: "4px 12px 0" }}>
-        Data and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
+        {anime
+          ? "Anime data and images from AniList. Matched to TMDB for tracking."
+          : "Data and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB."}
       </div>
     </main>
+  );
+}
+
+/* Explore → Anime: AniList's trending carousel (its banners), then this
+   season's, next season's, the most popular, the top rated and the films.
+   Airing cards say when their next episode is out. */
+function AnimeShelves({ statusOf, onOpen }) {
+  const { shelves, lists, error, retry } = useAnimeExplore();
+  if (error && !lists) {
+    return (
+      <Card style={{ textAlign: "center", padding: "26px 20px" }}>
+        <div style={{ fontSize: 15, fontWeight: 600 }}>Couldn't load anime</div>
+        <div style={{ fontSize: 13.5, color: "var(--ink-dim)", lineHeight: 1.5, margin: "6px auto 14px", maxWidth: 300 }}>{error}</div>
+        <button type="button" onClick={retry} style={ghostBtn()}>Try Again</button>
+      </Card>
+    );
+  }
+  const [hero, ...rows] = shelves;
+  return (
+    <div className="tvt-view">
+      <section style={{ marginBottom: 26 }}>
+        <SectionHeader title={hero.title} eyebrow="On AniList" />
+        <div className="tvt-shelf">
+          {lists
+            ? (lists[hero.k] || []).slice(0, 10).map((t, i) => <HeroCard key={tileKey(t)} tile={t} rank={i + 1} status={statusOf(t)} onOpen={onOpen} />)
+            : [0, 1].map((i) => <span key={i} className="tvt-skel" style={{ flex: "0 0 86%", maxWidth: 460, aspectRatio: "16 / 10", borderRadius: 20 }} />)}
+        </div>
+      </section>
+      {rows.map((r) => {
+        const list = lists?.[r.k];
+        if (lists && !list?.length) return null;
+        return (
+          <Shelf key={r.k} title={r.title} eyebrow={r.eyebrow}>
+            {list ? list.map((t) => <PosterCard key={tileKey(t)} tile={t} status={statusOf(t)} onOpen={onOpen} sub={animeMeta(t)} />) : <SkeletonCards />}
+          </Shelf>
+        );
+      })}
+    </div>
   );
 }
 
@@ -517,19 +594,19 @@ function ExploreShelves({ plan, tmdbKey, statusOf, onOpen, onRetry }) {
 /* A wide card for the trending carousel, as the TV app draws its hero row. */
 function HeroCard({ tile, rank, status, onOpen }) {
   return (
-    <button type="button" className="tvt-wide-btn" onClick={() => onOpen(tile)} style={{
+    <button type="button" className="tvt-wide-btn tvt-hero-card" onClick={() => onOpen(tile)} style={{
       position: "relative", flex: "0 0 86%", maxWidth: 460, aspectRatio: "16 / 10", scrollSnapAlign: "start",
       borderRadius: 20, overflow: "hidden", border: "none", padding: 0, margin: 0,
       background: "var(--bg-2)", color: "#fff", textAlign: "left", font: "inherit", cursor: "pointer",
     }}>
-      <Backdrop path={tile.backdrop} poster={tile.poster} title={tile.title} />
+      <Backdrop path={tile.backdrop} url={tile.banner} poster={tile.poster} img={tile.img} title={tile.title} />
       <span aria-hidden style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.82) 100%)" }} />
       <span style={{ position: "absolute", left: 16, right: 16, bottom: 14 }}>
         <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "rgba(255,255,255,0.75)" }}>
-          #{rank} · {tile.kind === "tv" ? "Show" : "Movie"}
+          #{rank} · {tile.anime ? (tile.kind === "tv" ? "Anime" : "Anime Movie") : tile.kind === "tv" ? "Show" : "Movie"}
         </span>
         <span style={{ display: "block", fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tile.title}</span>
-        <span style={{ display: "block", fontSize: 13, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>{tileMeta(tile)}</span>
+        <span style={{ display: "block", fontSize: 13, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>{animeMeta(tile)}</span>
       </span>
       {status && <StatusBadge status={status} />}
     </button>
@@ -572,33 +649,50 @@ function SearchField({ value, onChange, placeholder = "Shows, Movies and More" }
   );
 }
 
-function SearchList({ state, kind, statusOf, onOpen }) {
+/* Search results as rows. A title not in your library has a + that puts
+   it on your Watchlist without opening it. */
+function SearchList({ state, kind, source = "TMDB", statusOf, onOpen, onAdd }) {
+  const [adding, setAdding] = useStateB(() => new Set());
   const note = (text) => <div style={{ fontSize: 13.5, color: "var(--ink-dim)", padding: "6px 4px 20px" }}>{text}</div>;
   if (state.error) return note(state.error);
   const results = state.results.filter((t) => kind === "all" || t.kind === kind);
-  if (!results.length) return note(state.loading ? "Searching…" : "No matches on TMDB.");
+  if (!results.length) return note(state.loading ? "Searching…" : `No matches on ${source}.`);
+  const add = async (t) => {
+    const k = tileKey(t);
+    if (adding.has(k)) return;
+    setAdding((s) => new Set(s).add(k));
+    try { await onAdd(t); } finally { setAdding((s) => { const n = new Set(s); n.delete(k); return n; }); }
+  };
   return (
     <div style={{ marginBottom: 18 }}>
       {results.map((t, i) => {
         const status = statusOf(t);
+        const busy = adding.has(tileKey(t));
         return (
-          <AnimatedRow key={titleKey(t.kind, t.tmdbId)} index={i}>
-            <button type="button" className="tvt-wide-btn" onClick={() => onOpen(t)} style={{
-              width: "100%", display: "flex", alignItems: "center", gap: 12, padding: 10, margin: 0,
-              background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 18,
-              textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
-            }}>
-              <Poster item={t} />
-              <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13, color: "var(--ink-dim)" }}>
-                  <KindChip kind={t.kind} />
-                  {tileMeta(t) && <span className="mono">{tileMeta(t)}</span>}
-                  {status && <span style={{ color: "var(--accent)", fontWeight: 600 }}>{statusLabel(status)}</span>}
+          <AnimatedRow key={tileKey(t)} index={i}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 18, padding: "10px 8px 10px 10px" }}>
+              <button type="button" className="tvt-wide-btn" onClick={() => onOpen(t)} style={{
+                flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, padding: 0, margin: 0,
+                background: "transparent", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
+              }}>
+                <Poster item={t} />
+                <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13, color: "var(--ink-dim)" }}>
+                    <KindChip kind={t.kind} anime={t.anime} />
+                    {animeMeta(t) && <span className="mono">{animeMeta(t)}</span>}
+                    {status && <span key={status} className="tvt-pop" style={{ color: "var(--accent)", fontWeight: 600 }}>{statusLabel(status)}</span>}
+                  </span>
                 </span>
-              </span>
-              <span style={{ color: "var(--ink-faint)", display: "inline-flex" }}><ChevronIcon /></span>
-            </button>
+              </button>
+              {onAdd && !status ? (
+                <button type="button" onClick={() => add(t)} disabled={busy} aria-label={`Add ${t.title} to your Watchlist`} title="Add to Watchlist" style={{
+                  ...iconBtn(38), background: "color-mix(in oklab, var(--accent) 16%, transparent)", color: "var(--accent)", opacity: busy ? 0.5 : 1,
+                }}>{busy ? <span className="tvt-ptr-spin" style={{ display: "inline-flex" }}><ActivityIcon size={18} /></span> : <PlusIcon size={18} />}</button>
+              ) : (
+                <span aria-hidden style={{ color: "var(--ink-faint)", display: "inline-flex", padding: "0 6px" }}>{status ? <span className="tvt-check-pop" style={{ display: "inline-flex", color: "var(--accent)" }}><CheckIcon size={16} /></span> : <ChevronIcon />}</span>
+              )}
+            </div>
           </AnimatedRow>
         );
       })}
@@ -606,4 +700,4 @@ function SearchList({ state, kind, statusOf, onOpen }) {
   );
 }
 
-Object.assign(window, { titleKey, useLibraryIndex, Backdrop, PosterCard, Shelf, upNextInfo, watchingGroup, GROUP_NAMES, LongList, WatchingView, ExploreView, SearchField });
+Object.assign(window, { titleKey, tileKey, animeMeta, useLibraryIndex, Backdrop, PosterCard, Shelf, upNextInfo, watchingGroup, GROUP_NAMES, LongList, WatchingView, ExploreView, SearchField });

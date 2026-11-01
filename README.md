@@ -3,10 +3,10 @@
 A small installable web app (PWA) for keeping track of the shows and movies you're **watching**, **want to watch** and have **watched**. Three tabs along the bottom:
 
 - **Watching**: *Up Next*, the next episode of what you've watched in the last 30 days (rolling on to the next season); *Not Started*, shows with no episode ticked yet; *Caught Up*, shows you've seen everything out of; your watchlist, titles like your recent ones, what you've finished lately and *On Hold*, what you haven't watched in a while. Each list folds away under its header, and its **•••** menu acts on all its shows (mark all caught up, move all to Watched or the Watchlist). Every row has a **•••** menu too: tick the next episode, *I'm Caught Up* (jump to the latest episode out), choose the episode you're on, move or remove it.
-- **Explore**: what's trending and popular on TMDB, for shows, movies or both, with search.
+- **Explore**: what's trending and popular on TMDB, for shows, movies or both, with search. **Anime** swaps in AniList's shelves (trending, airing this season with each show's next-episode countdown, next season, all-time popular, top rated, films) and searches AniList, in English or Japanese names. A **+** on any search result puts it on your Watchlist without opening it.
 - **Profile**: your username and picture (Edit Profile), with a small green tick beside the name once synced (tap it for details), library counts, total watch time split by shows and movies, top genres, awards for milestones, your library's lists (each with search and a sort dropdown) and CSV import. Settings is the gear beside the Profile title, the only button at the top of any screen; the header is just the logo and name.
 
-Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, *Where to Watch* (the services with it in your country, from JustWatch), a show's schedule from TVmaze (your next episode by name, the next to air in your time zone, the latest out, and its days and channel), *Did You Know* from Wikidata (awards, box office against budget, what it's based on, who made it, where it was filmed and set, its series), *On Trakt* (Trakt's rating, watchers and plays) and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations and sheets you can pull down to close. The loading screen is a strip of film (its frames your own posters) rolling up the screen behind the logo, an old television with a sunset on its screen; once the app is ready the film whooshes off the top and the splash cross-fades into the app as it rises in.
+Tap any title for its sheet: big artwork, rating, dates and runtime, your status, progress and rating, *Where to Watch* (the services with it in your country, from JustWatch), a show's schedule from TVmaze (your next episode by name, the next to air in your time zone, the latest out, and its days and channel), *Did You Know* from Wikidata (awards, box office against budget, what it's based on, who made it, where it was filmed and set, its series), *On Trakt* (Trakt's rating, watchers and plays), *On AniList* for anime (score, rank, studio, source, season, the next episode to the minute, tags, and its prequels, sequels and spin-offs, each a tap away) and more like it. Sign in to sync your list across devices. Pull down on any screen to refresh: it syncs and fetches what's on screen afresh from TMDB. It uses the same look and motion as the Night Shift Calculator: iOS system colours, light and dark themes, spring animations and sheets you can pull down to close. The loading screen is a strip of film (its frames your own posters) rolling up the screen behind the logo, an old television with a sunset on its screen; once the app is ready the film whooshes off the top and the splash cross-fades into the app as it rises in.
 
 There's no build step. React and Babel load from a CDN, and the `.jsx` files are compiled in the browser, so you can edit any file on GitHub (even from a phone) and the change is live once Pages redeploys.
 
@@ -37,6 +37,12 @@ JustWatch has no public API, so the data comes the licensed way: TMDB's `/watch/
 
 Nothing to set up: [Wikidata](https://www.wikidata.org) is free and needs no key. A title is found by its TMDB id (or IMDb id) with one SPARQL query to `query.wikidata.org`, only when its sheet opens. Money is shown only where Wikidata has it in US dollars. Its data is CC0.
 
+### Anime (AniList)
+
+Nothing to set up for the title sheet or Explore → Anime: [AniList](https://anilist.co)'s GraphQL API (`graphql.anilist.co`) is free, needs no key and answers any origin. A title counts as anime when TMDB has it as Animation in Japanese (`anime` in its details); its AniList entry is found by its Japanese name, then English, of the same type and year. A card opened from AniList is matched to its TMDB title (by its English, romaji or Japanese name against TMDB's name and original name, animated only, within a year), or, for a sequel AniList names "Season 2", its prequel's; that needs the TMDB key, and without one it's tracked as a title typed in. Links both ways are kept on the device (`tvt:anilist:v1`).
+
+**Settings → AniList → Import** brings in a public AniList list by username (needs the TMDB key). AniList has one entry per season or cour; TMDB one show with seasons. Each entry goes to its TMDB show (its own match, else its prequel's), your episodes across the seasons before it on that show are added up, and the total is laid onto TMDB's seasons, so *Season 2, episode 10 of 23* after a 24-episode first season lands on S2 · E10. The furthest entry decides the status: watching, paused or dropped are Watching (old ones fall into On Hold), planning is the Watchlist, completed is Watched only once TMDB has nothing more out. Scores out of 100 become stars; a finished movie's completion date goes into Activity. Specials, OVAs and dropped movies are left out, and the confirm dialog says how many didn't match. It goes through the same merge as a CSV import, with Undo.
+
 ### Trakt
 
 1. Make a free API app at [trakt.tv → Your API Apps](https://trakt.tv/oauth/applications/new). Redirect URI: `urn:ietf:wg:oauth:2.0:oob`. JavaScript (CORS) origins: your Pages address, e.g. `https://<your-user>.github.io` (without it, the browser is refused).
@@ -65,6 +71,7 @@ Then **Settings → Account → Sign in**. Sign-in uses a password rather than a
 | `components.jsx` | Shared building blocks: `Card`, `SegToggle`, button styles, `ScreenTitle`, `SectionHeader`, `ProgressBar`, `ModalFrame` (sheets and dialogs), `showMenu` (action sheets), `FoldSection` and `useFold` (fold-away sections), `Picker` (a dropdown), `PullToRefresh`, `showToast`, `askConfirm`, `AnimatedRow`, `Collapse`, icons. |
 | `tmdb.jsx` | TMDB search, image URLs, title details (cached on the device) with where to watch them (`providersFor`, `setWatchRegion`), the Explore lists, and the episode maths (`nextEpisode`, `episodesWatched`, `airedEpisodes`, `latestAired`). |
 | `wikidata.jsx` | Wikidata: the SPARQL query (`wikidataQuery`), the facts it keeps (`compactWikidata`, cached on the device), `useWikidata`, and the title sheet's Did You Know section (`WikidataSection`). |
+| `anilist.jsx` | AniList: the request queue (`anilistQuery`, two at a time, waits out a 429), title facts (`useAnilist`, `AnilistSection`), matching both ways (`findAnilistId`, `tmdbAnimeMatch`, `resolveAnilistToTmdb`), Explore's Anime shelves and search (`useAnimeExplore`, `useAnilistSearch`), and the list import (`fetchAnilistLibrary`, `absToSeasonEp`, `AnilistSettings`). |
 | `trakt.jsx` | Trakt: settings and device sign-in (`traktDeviceCode`, `traktWaitForSignIn`, token refresh), community stats (`useTraktStats`, `TraktSection`), your history as import records (`fetchTraktLibrary`), and the Settings panel (`TraktSettings`). |
 | `tvmaze.jsx` | TVmaze: finding a show (`findTvmazeId`), its next and latest episodes and schedule (cached on the device), episode names (`useTvmaze`), and the title sheet's Schedule section (`AirSection`). |
 | `cloud.jsx` | Supabase config, sign-in, the profile (TMDB key, username, profile picture) and sync. |
@@ -91,7 +98,8 @@ Everything is saved on the device first, in `localStorage` under `tvt:v1`, so th
 | `tvt:tvmaze:v1` | TVmaze schedules for the 300 shows opened last | After 12 hours, or once the next episode has aired |
 | `tvt:wikidata:v1` | Wikidata facts for the 300 titles opened last | After 30 days (a week for one Wikidata hasn't got) |
 | `tvt:traktstats:v1` | Trakt's numbers for the 300 titles opened last | After 3 days |
-| `tvt-img-v1` (service worker cache) | Posters and stills (the latest 600) | Never: TMDB image files don't change |
+| `tvt:anilist:v1` | AniList facts for the 300 anime opened last, AniList ↔ TMDB links, and Explore's Anime shelves | A day (12 hours while airing); links after 30 days (7 for a miss); shelves after half an hour |
+| `tvt-img-v1` (service worker cache) | Posters and stills, TMDB's and AniList's (the latest 600) | Never: TMDB image files don't change |
 
 They're only caches: each is dropped first if storage runs short. Pulling down to refresh fetches the lists and titles on screen, and the shows you're watching, straight away.
 
@@ -181,6 +189,10 @@ A watched movie counts its TMDB runtime. A show counts the episodes up to your p
 | `.tvt-view.tvt-push` | The same, sliding in from the right (a list pushed over a tab). |
 | `.tvt-shelf` | A row of cards that scrolls sideways, edge to edge, snapping card by card. |
 | `AnimatedRow` + `useFoldAway` | List rows cascade in and fold shut when removed. |
+| `.tvt-screen` (`--enter-x`) | Switching tabs, the new screen drifts in from the side its tab is on. |
+| `useLongPress` + `.tvt-hold` | Press and hold a row for its ••• menu, sinking as it's held. |
+| `.tvt-tick` | A ring pulses out of Up Next's tick as it's pressed. |
+| `.tvt-skel` | Loading placeholders with a sheen sweeping across. |
 | `.tvt-pop` (keyed by value) | A number or badge pops when it changes. |
 | `.tvt-check-pop` | Press-and-release spring (used by the stars). |
 | `ModalFrame sheet` | Bottom sheet that springs up and can be flung down to close. |

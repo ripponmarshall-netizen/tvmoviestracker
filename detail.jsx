@@ -16,7 +16,11 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
   const { ref, closing, close } = useModalDismiss(onClose);
   // A title from "More Like This" opens in the same sheet; Back returns.
   const [stack, setStack] = useStateD([target]);
-  const top = stack[stack.length - 1];
+  const opened = stack[stack.length - 1];
+  // A card from AniList is matched to its TMDB title (undefined while
+  // that's being looked for), so it tracks like any other.
+  const match = useAnimeTmdb(opened.anilistId && !opened.tmdbId ? opened.anilistId : null, tmdbKey);
+  const top = match ? { ...opened, kind: match.kind, tmdbId: match.tmdbId } : opened;
   const item = findInLibrary(items, top);
   const kind = item ? item.kind : top.kind;
   const tmdbId = item ? item.tmdbId : top.tmdbId;
@@ -34,13 +38,21 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
   }, []);
 
   const tv = kind === "tv";
+  // AniList: the card's own entry, else (an anime from TMDB) found by name.
+  const ani = useAnilist(opened.anilistId ? { anilistId: opened.anilistId }
+    : tmdbId && d?.anime ? { kind, tmdbId, title: d.title, orig: d.orig, year: (d.date || "").slice(0, 4) } : null).m;
+  const anime = !!(opened.anilistId || opened.anime || d?.anime);
   const title = item?.title || top.title || d?.title || "";
-  const art = { title, kind, poster: item?.poster || top.poster || d?.poster || "" };
+  const art = { title, kind, poster: item?.poster || top.poster || d?.poster || "", img: opened.img || ani?.img || "" };
   const date = d?.date || top.date || "";
-  const year = date.slice(0, 4) || item?.year || top.year || "";
-  const meta = [tv ? "Show" : "Movie", d?.genres?.slice(0, 2).join(", "), year, tv && d?.status && d.status !== "Returning Series" ? d.status : ""]
+  // An AniList season's own year (TMDB's is the show's first).
+  const year = (opened.anilistId && opened.year) || date.slice(0, 4) || item?.year || top.year || "";
+  const meta = [anime ? (tv ? "Anime" : "Anime Movie") : tv ? "Show" : "Movie", (d?.genres?.length ? d.genres : ani?.genres || []).filter((g) => g !== "Animation").slice(0, 2).join(", "), year,
+    tv && d?.status && d.status !== "Returning Series" ? d.status : ""]
     .filter(Boolean).join(" · ");
-  const overview = d?.overview || top.overview || "";
+  const overview = d?.overview || top.overview || ani?.about || "";
+  // What a status tile adds: the TMDB title a card from AniList matched.
+  const addTarget = match ? { ...top, title: d?.title || top.title, poster: d?.poster || "", year: (d?.date || "").slice(0, 4) || top.year } : top;
   const more = (recs || []).filter((t) => !(t.kind === kind && t.tmdbId === tmdbId)).slice(0, 15);
   // TVmaze, for a show: once TMDB's details are in (they carry the ids
   // that find it for certain), or straight away without them.
@@ -70,7 +82,7 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
       {/* Keyed by depth, so a title opened from "More Like This" rises in. */}
       <div key={stack.length} className={stack.length > 1 ? "tvt-view" : undefined}>
         <div style={{ position: "relative", height: 250, overflow: "hidden" }}>
-          <Backdrop path={d?.backdrop || top.backdrop} poster={art.poster} title={title} size="w1280" />
+          <Backdrop path={d?.backdrop || top.backdrop} url={opened.banner || ani?.banner} poster={art.poster} img={art.img} title={title} size="w1280" />
           <span aria-hidden style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0) 30%, color-mix(in oklab, var(--bg-1) 55%, transparent) 70%, var(--bg-1) 100%)" }} />
         </div>
         <div style={{ display: "flex", justifyContent: "center", marginTop: -186, position: "relative" }}>
@@ -85,10 +97,13 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
         </div>
 
         {tmdbId ? (
-          <InfoStrip cells={infoCells(tv, d, top, date, year, loading)} />
+          <InfoStrip cells={infoCells(tv, d, top, date, date.slice(0, 4) || year, loading)} />
         ) : (
-          <div style={{ fontSize: 12.5, color: "var(--ink-faint)", textAlign: "center", lineHeight: 1.4, padding: "12px 28px 0" }}>
-            Typed in by hand. Use Edit to link it to TMDB for ratings, dates and runtimes.
+          <div key={match === undefined ? "finding" : "none"} className="tvt-pop" style={{ display: "block", fontSize: 12.5, color: "var(--ink-faint)", textAlign: "center", lineHeight: 1.4, padding: "12px 28px 0" }}>
+            {!opened.anilistId ? "Typed in by hand. Use Edit to link it to TMDB for ratings, dates and runtimes."
+              : match === undefined ? "Finding it on TMDB…"
+              : !tmdbKey ? "From AniList. Add a TMDB key in Settings to track it by season and episode, with posters."
+              : "From AniList; TMDB hasn't got it, so it's tracked by episode number."}
           </div>
         )}
         {error && !d && <div style={{ fontSize: 12.5, color: "var(--ink-faint)", textAlign: "center", padding: "10px 24px 0" }}>{error}</div>}
@@ -97,7 +112,7 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
         )}
 
         <div style={{ padding: "20px 16px 0" }}>
-          <StatusTiles status={item?.status} onPick={(s) => onStatus(top, s)} />
+          <StatusTiles status={item?.status} busy={match === undefined} onPick={(s) => onStatus(addTarget, s)} />
         </div>
 
         {item && tv && item.status === "watching" && (
@@ -121,6 +136,8 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
             {d?.network && <div style={{ fontSize: 13, color: "var(--ink-faint)", marginTop: 8 }}>On {d.network}</div>}
           </DetailSection>
         )}
+
+        {ani && <AnilistSection m={ani} onOpen={(tile) => setStack((s) => [...s, tile])} />}
 
         <WikidataSection w={wiki} />
         <TraktSection s={trakt} />
@@ -149,7 +166,7 @@ function TitleSheet({ target, items, tmdbKey, region, onStatus, onAdvance, onPat
         <div style={{ fontSize: 11.5, color: "var(--ink-faint)", textAlign: "center", lineHeight: 1.4, padding: "14px 24px calc(22px + var(--safe-bottom))" }}>
           {[tmdbId && "Details from TMDB", providersFor(d) && "Streaming data from JustWatch", air?.id && (
             <React.Fragment key="tvmaze">Schedule from <a href={air.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>TVmaze</a> (CC BY-SA)</React.Fragment>
-          ), wiki?.id && "Facts from Wikidata", trakt?.slug && "Stats from Trakt"].filter(Boolean).flatMap((x, i) => (i ? [" · ", x] : [x]))}
+          ), ani && "Anime data from AniList", wiki?.id && "Facts from Wikidata", trakt?.slug && "Stats from Trakt"].filter(Boolean).flatMap((x, i) => (i ? [" · ", x] : [x]))}
         </div>
       </div>
     </ModalFrame>
@@ -194,18 +211,19 @@ function InfoStrip({ cells, flat }) {
 
 /* Three tiles, one per status. The lit one is where it is; tapping
    another moves it (or adds it, for a title not in your library). */
-function StatusTiles({ status, onPick }) {
+function StatusTiles({ status, busy, onPick }) {
   return (
     <div role="radiogroup" aria-label={status ? "Status" : "Add to"} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
       {STATUSES.map((s) => {
         const Icon = s.icon;
         const on = s.v === status;
         return (
-          <button key={s.v} type="button" role="radio" aria-checked={on} onClick={() => onPick(s.v)} style={{
+          <button key={s.v} type="button" role="radio" aria-checked={on} disabled={busy} onClick={() => onPick(s.v)} style={{
             display: "flex", flexDirection: "column", alignItems: "center", gap: 5, padding: "12px 4px 10px",
             borderRadius: 16, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 600,
             background: on ? "var(--accent)" : "var(--fill)", color: on ? "var(--accent-ink)" : "var(--ink)",
-            transition: "background-color 0.2s ease, color 0.2s ease, var(--press)",
+            transition: "background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease, var(--press)",
+            opacity: busy ? 0.5 : 1,
           }}>
             <span key={on ? "on" : "off"} className={on ? "tvt-tab-pop" : undefined} style={{ display: "inline-flex" }}><Icon size={22} /></span>
             {status ? s.l : `+ ${s.l}`}

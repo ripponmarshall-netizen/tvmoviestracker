@@ -3,7 +3,7 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 const APP_NAME = "Nostalgiaa";
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "1.10.0";
 
 /* ============ Data ============
    Everything lives in localStorage under one key. If the item shape ever
@@ -32,6 +32,8 @@ const FILTERS = [
   { v: "tv", l: "Shows" },
   { v: "movie", l: "Movies" },
 ];
+// Explore has Anime too: AniList's shelves (anilist.jsx).
+const EXPLORE_KINDS = [...FILTERS, { v: "anime", l: "Anime" }];
 // Countries for Where to Watch (JustWatch's data, via TMDB), Jamaica and
 // its neighbours first. Any two-letter code works; these are the picks.
 const REGIONS = ["JM", "TT", "BB", "BS", "KY", "DO", "US", "CA", "GB", "IE", "AU", "NZ", "IN", "NG", "ZA", "DE", "FR", "ES", "MX", "BR"];
@@ -130,7 +132,7 @@ function loadState() {
     theme: pick(s.theme, THEMES, "auto"),
     tab: pick(s.tab, TABS, "watching"),
     filter: pick(s.filter, FILTERS, "all"),
-    explore: pick(s.explore, FILTERS, "all"),
+    explore: pick(s.explore, EXPLORE_KINDS, "all"),
     tmdbKey: typeof s.tmdbKey === "string" ? s.tmdbKey : "",
     region: /^[A-Z]{2}$/.test(s.region || "") ? s.region : guessRegion(),
     avatar: cleanAvatar(s.avatar),
@@ -226,6 +228,14 @@ function App() {
   }, [theme]);
 
   React.useLayoutEffect(() => { window.scrollTo(0, 0); }, [tab, list]);
+  // Which way the new tab's screen slides in: from the side its tab is on.
+  const tabIndex = TABS.findIndex((t) => t.v === tab);
+  const lastTab = useRef(tabIndex);
+  const enterFrom = useMemo(() => {
+    const from = Math.sign(tabIndex - lastTab.current);
+    lastTab.current = tabIndex;
+    return from;
+  }, [tabIndex]);
   // Tapping the current tab goes back from a list, then scrolls to the top.
   const go = (t) => {
     if (t === tab) {
@@ -443,7 +453,9 @@ function App() {
         },
         tv && n?.aired && item.status !== "watched" && !item.rewatch && { label: `Mark S${n.season} · E${n.episode} watched`, icon: <CheckIcon size={18} />, run: () => advance(item.id) },
         tv && item.tmdbId && behind && { label: "I'm Caught Up", sub: latest ? `Jump to S${latest.season} · E${latest.episode}, the latest out` : "Jump to the latest episode out", icon: <ForwardIcon size={18} />, run: () => catchUp([item.id]) },
-        tv && { label: "Choose Episode…", sub: "Pick the season and episode you're on", icon: <TvIcon size={18} />, run: () => openItem(item) },
+        // The title sheet's episode picker is under Your Progress, which only
+        // a show on the go has; for the others, the edit sheet has it.
+        tv && { label: "Choose Episode…", sub: "Pick the season and episode you're on", icon: <TvIcon size={18} />, run: () => (item.status === "watching" ? openItem(item) : setEditing(item)) },
         item.status !== "watched" && { label: tv ? "Finished It" : "Mark as Watched", sub: "Move to Watched", icon: <CheckCircleIcon size={18} />, run: () => moveTo(item.id, "watched") },
         item.status !== "watching" && { label: "Move to Watching", icon: <PlayIcon size={18} />, run: () => moveTo(item.id, "watching") },
         item.status !== "watchlist" && { label: "Move to Watchlist", sub: "For later", icon: <BookmarkIcon size={18} />, run: () => moveTo(item.id, "watchlist") },
@@ -516,8 +528,9 @@ function App() {
   // what's on screen and what you're watching.
   const refresh = async () => {
     const watchingNow = itemsRef.current.filter((i) => i.status === "watching");
-    const [tmdb] = await Promise.allSettled([refreshTmdb(tmdbKey, watchingNow), userId ? sync.syncNow() : null]);
-    if (tmdb.status === "rejected") showToast(tmdb.reason?.message || "Couldn't refresh");
+    const [tmdb, ani] = await Promise.allSettled([refreshTmdb(tmdbKey, watchingNow), refreshAnilist(), userId ? sync.syncNow() : null]);
+    const failed = [tmdb, ani].find((r) => r.status === "rejected");
+    if (failed) showToast(failed.reason?.message || "Couldn't refresh");
   };
 
   const counts = useMemo(() => ({ watching: items.filter((i) => i.status === "watching").length }), [items]);
@@ -536,7 +549,7 @@ function App() {
   } else if (tab === "explore") {
     screen = (
       <ExploreView key="explore" items={items} tmdbKey={tmdbKey} kind={explore} setKind={setExplore}
-        query={query} setQuery={setQuery} onOpen={openTile} onSettings={openSettings} />
+        query={query} setQuery={setQuery} onOpen={openTile} onAdd={(t) => addTitle(t, "watchlist")} onSettings={openSettings} />
     );
   } else if (tab === "profile") {
     screen = (
@@ -555,7 +568,9 @@ function App() {
       {/* Profile has its own way into Settings, and nothing to add to. */}
       <Header />
 
-      <PullToRefresh onRefresh={refresh}>{screen}</PullToRefresh>
+      <PullToRefresh onRefresh={refresh}>
+        <div className="tvt-screen" style={{ "--enter-x": `${enterFrom * 28}px` }}>{screen}</div>
+      </PullToRefresh>
 
       <Taskbar tab={tab} onTab={go} counts={counts} />
 
@@ -602,6 +617,7 @@ function App() {
           session={session}
           sync={sync}
           items={items}
+          getItems={() => itemsRef.current}
           // Restored titles count as edited now, so they win over newer
           // versions elsewhere: the backup is what you asked for.
           onImport={(list) => replaceAll(list.map(touch), `Imported ${plural(list.length, "title")}`)}
@@ -666,7 +682,11 @@ function ListView({ status, items, filter, setFilter, onOpen, onQuick, onMore, o
   // the screen, so a row you tap +1 on doesn't jump to the top under your
   // finger. Titles added meanwhile go on top.
   const orderRef = useRef(null);
-  if (!orderRef.current) orderRef.current = [...inStatus].sort((a, b) => b.updated.localeCompare(a.updated)).map((i) => i.id);
+  const recent = (list) => [...list].sort((a, b) => b.updated.localeCompare(a.updated)).map((i) => i.id);
+  // A sync or an import that lands a batch while you're here (the first
+  // sign-in on a device, say) sets the order afresh rather than leave the
+  // new ones in no order at the top.
+  if (!orderRef.current || inStatus.filter((i) => !orderRef.current.includes(i.id)).length > 3) orderRef.current = recent(inStatus);
   const rank = (id) => orderRef.current.indexOf(id);
   const by = {
     recent: (a, b) => rank(a.id) - rank(b.id),
@@ -730,13 +750,14 @@ function SortPicker({ value, onChange }) {
 function ItemRow({ item, onOpen, onQuick, onMore }) {
   const q = quickAction(item);
   const progress = progressLabel(item);
+  const press = useLongPress(onMore ? () => onMore(item) : null);
   return (
     <div style={{
       display: "flex", alignItems: "center", gap: 10,
       background: "var(--bg-1)", border: "1px solid var(--card-edge)", borderRadius: 18,
       padding: "10px 8px 10px 10px",
     }}>
-      <button type="button" className="tvt-wide-btn" onClick={() => onOpen(item)} style={{
+      <button type="button" className="tvt-wide-btn tvt-hold" ref={press.ref} onClick={press.guard(() => onOpen(item))} style={{
         flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12,
         background: "transparent", border: "none", padding: 0, margin: 0,
         textAlign: "left", cursor: "pointer", color: "inherit", font: "inherit",
@@ -745,7 +766,7 @@ function ItemRow({ item, onOpen, onQuick, onMore }) {
         <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
           <span style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.title}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13, color: "var(--ink-dim)" }}>
-            <KindChip kind={item.kind} />
+            <KindChip kind={item.kind} anime={item.tmdbId && cachedDetails(item.kind, item.tmdbId)?.anime} />
             {item.year && !progress && <span className="mono">{item.year}</span>}
             {/* Keyed by its text, so it pops each time an episode is ticked. */}
             {progress && <span key={progress} className="mono tvt-pop">{progress}</span>}
@@ -778,7 +799,8 @@ function titleHue(title) {
 function Poster({ item, size = 46, ratio = 1.4, radius = 10, stripe = true }) {
   const hue = useMemo(() => titleHue(item.title), [item.title]);
   const [failed, setFailed] = useState("");
-  const src = posterUrl(item.poster, size > 150 ? "w500" : size > 60 ? "w342" : "w185");
+  // A TMDB poster, else a cover by URL (a card from AniList).
+  const src = item.poster ? posterUrl(item.poster, size > 150 ? "w500" : size > 60 ? "w342" : "w185") : item.img || "";
   const words = item.title.replace(/^(the|a|an)\s+/i, "").split(/\s+/).filter(Boolean);
   const initials = words.slice(0, 2).map((w) => Array.from(w)[0]).join("").toUpperCase();
   return (
@@ -800,11 +822,14 @@ function Poster({ item, size = 46, ratio = 1.4, radius = 10, stripe = true }) {
   );
 }
 
-function KindChip({ kind }) {
-  const c = kind === "tv" ? "var(--tv)" : "var(--movie)";
+/* Show or Movie, or Anime for one TMDB or AniList says is anime (with
+   "Movie" beside it for an anime film). */
+function KindChip({ kind, anime }) {
+  const c = anime ? "var(--anime)" : kind === "tv" ? "var(--tv)" : "var(--movie)";
+  const label = anime ? (kind === "movie" ? "Anime Movie" : "Anime") : KINDS.find((k) => k.v === kind)?.l;
   return (
-    <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 999, color: c, background: `color-mix(in oklab, ${c} 16%, transparent)` }}>
-      {KINDS.find((k) => k.v === kind)?.l}
+    <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 999, color: c, background: `color-mix(in oklab, ${c} 16%, transparent)`, whiteSpace: "nowrap" }}>
+      {label}
     </span>
   );
 }
@@ -1013,7 +1038,7 @@ function RatingInput({ value, onChange }) {
 }
 
 /* ============ Settings ============ */
-function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion, avatar, username, onEditProfile, session, sync, items, onImport, onImportCsv, onImportPlan, onErase, onClose }) {
+function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion, avatar, username, onEditProfile, session, sync, items, getItems, onImport, onImportCsv, onImportPlan, onErase, onClose }) {
   const { ref, closing, close } = useModalDismiss(onClose);
   const fileRef = useRef(null);
   const [testing, setTesting] = useState(false);
@@ -1079,6 +1104,7 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
 
   const email = session?.user?.email || "";
   const trakt = useTraktSettings();
+  const ani = useAnilistConf();
   const regionOpts = [...new Set([region, ...REGIONS])].map((c) => ({ v: c, l: `${regionName(c)} (${c})`, short: regionName(c) }));
   return (
     <ModalFrame sheet dismiss={{ ref, closing, close }} label="Settings">
@@ -1130,6 +1156,9 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
         <SettingsGroup id="trakt" icon={<ActivityIcon size={16} />} tint="#ed1c24" title="Trakt" summary={trakt.token?.access ? "Connected" : trakt.id ? "Client ID added" : "Not set up"}>
           <TraktSettings items={items} onImport={(plan) => { onImportPlan(plan); close(); }} />
         </SettingsGroup>
+        <SettingsGroup id="anilist" icon={<AnimeIcon size={16} />} tint="#02a9ff" title="AniList" summary={ani.user ? `@${String(ani.user).trim().replace(/^@/, "")}` : "Anime"}>
+          <AnilistSettings getItems={getItems} tmdbKey={tmdbKey} onImport={(plan) => { onImportPlan(plan); close(); }} />
+        </SettingsGroup>
       </SettingsSection>
 
       <SettingsSection title="Your Data">
@@ -1156,7 +1185,7 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
       </SettingsSection>
 
       <SettingsSection title="About">
-        <SettingsGroup id="credits" icon={<InfoIcon size={16} />} tint="#5e5ce6" title="Credits" summary="TMDB · TVmaze · Wikidata">
+        <SettingsGroup id="credits" icon={<InfoIcon size={16} />} tint="#5e5ce6" title="Credits" summary="TMDB · AniList · TVmaze">
           <Credits />
         </SettingsGroup>
       </SettingsSection>
@@ -1168,7 +1197,7 @@ function SettingsSheet({ theme, setTheme, tmdbKey, setTmdbKey, region, setRegion
       </div>
       {/* TMDB's terms ask apps using its API to say this where it can be seen. */}
       <div style={{ fontSize: 11, color: "var(--ink-faint)", margin: "12px auto 0", lineHeight: 1.45, textAlign: "center", maxWidth: 340 }}>
-        This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming data from JustWatch. Schedules from TVmaze, under CC BY-SA 4.0. Facts from Wikidata (CC0).
+        This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming data from JustWatch. Schedules from TVmaze, under CC BY-SA 4.0. Facts from Wikidata (CC0). Anime data from AniList.
       </div>
     </ModalFrame>
   );
@@ -1182,6 +1211,12 @@ const CREDITS = [
     what: "Titles, posters, artwork, ratings, runtimes, episode counts, recommendations and Explore.",
     terms: "This product uses the TMDB API but is not endorsed or certified by TMDB.",
     links: [["API terms", "https://www.themoviedb.org/api-terms-of-use"]],
+  },
+  {
+    name: "AniList", href: "https://anilist.co",
+    what: "Anime: scores, ranks, studios, seasons, exact airing times, related titles, Explore's Anime shelves and search, and importing your AniList list.",
+    terms: "Uses the free AniList API. Not affiliated with or endorsed by AniList.",
+    links: [["API", "https://docs.anilist.co"], ["Terms", "https://anilist.co/terms"]],
   },
   {
     name: "TVmaze", href: "https://www.tvmaze.com",

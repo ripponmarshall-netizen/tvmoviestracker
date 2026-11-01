@@ -16,6 +16,7 @@ function watchStats(items, repeats = new Map()) {
   const s = {
     titles: items.length, tvMin: 0, movieMin: 0, episodes: 0, movies: 0, rewatched: 0, rewatchMin: 0,
     showsDone: 0, rated: 0, ratingSum: 0, estimated: 0, genreTime: new Map(), genres: new Set(),
+    anime: 0, animeMin: 0, // titles TMDB says are anime, and their time
   };
   for (const it of items) {
     if (it.rating) { s.rated++; s.ratingSum += it.rating; }
@@ -43,6 +44,7 @@ function watchStats(items, repeats = new Map()) {
       min += extra;
     }
     if (min && !d?.rt) s.estimated++;
+    if (min && d?.anime) { s.anime++; s.animeMin += min; }
     for (const g of d?.genres || []) s.genres.add(g);
     // Each title's time goes to its first (main) genre, so they add up.
     const g = d?.genres?.[0];
@@ -63,6 +65,7 @@ const BADGES = [
   { id: "day", icon: "⏰", hue: 200, name: "Full Day", desc: "24 hours watched", goal: 24 * 60, of: (s) => s.minutes, hours: true },
   { id: "eps100", icon: "🛋️", hue: 270, name: "Binge Mode", desc: "Watch 100 episodes", goal: 100, of: (s) => s.episodes },
   { id: "movie25", icon: "🎞️", hue: 320, name: "Film Buff", desc: "Watch 25 movies", goal: 25, of: (s) => s.movies },
+  { id: "anime10", icon: "🍥", hue: 340, name: "Anime Fan", desc: "Watch 10 anime", goal: 10, of: (s) => s.anime },
   { id: "genres", icon: "🧭", hue: 175, name: "Genre Hopper", desc: "Watch 8 genres", goal: 8, of: (s) => s.genres.size },
   { id: "week", icon: "🗓️", hue: 230, name: "Week Off", desc: "7 days watched", goal: 7 * 24 * 60, of: (s) => s.minutes, hours: true },
   { id: "finish10", icon: "🥇", hue: 60, name: "Closer", desc: "Finish 10 shows", goal: 10, of: (s) => s.showsDone },
@@ -74,7 +77,7 @@ const BADGES = [
 
 function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, username, onEditProfile, onOpenList, onSettings, onImportCsv, onOpenItem }) {
   // Runtimes and episode counts for everything that counts towards time.
-  const pending = usePrefetchDetails(items.filter((i) => i.status !== "watchlist"), tmdbKey);
+  const pending = usePrefetchDetails(items.filter((i) => i.status !== "watchlist"), tmdbKey, "old");
   const { repeats } = useWatchLog();
   const s = watchStats(items, repeats);
   const counts = {};
@@ -98,6 +101,8 @@ function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, usernam
         <StatTile label="Movies" value={s.movies.toLocaleString("en-GB")} color="var(--movie)" icon={<CheckCircleIcon size={16} />} />
         <StatTile label="Shows finished" value={s.showsDone} color="var(--ok)" icon={<CheckIcon size={15} />} />
         <StatTile label="Your average" value={s.rated ? (s.ratingSum / s.rated).toFixed(1) : "–"} color="var(--star)" icon={<StarIcon size={15} filled />} />
+        {s.anime > 0 && <StatTile label="Anime" value={s.anime.toLocaleString("en-GB")} color="var(--anime)" icon={<AnimeIcon size={15} />} />}
+        {s.anime > 0 && <StatTile label="Anime time" value={fmtRuntime(s.animeMin)} color="var(--anime)" icon={<AnimeIcon size={15} />} />}
       </div>
 
       <ActivitySection items={items} tmdbKey={tmdbKey} onOpenItem={onOpenItem} onImportCsv={onImportCsv} />
