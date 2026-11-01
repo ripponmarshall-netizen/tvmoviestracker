@@ -124,6 +124,10 @@ function upNextInfo(item, d) {
    - "onhold" (On Hold): the rest, not watched in a while. */
 const RECENT_DAYS = 30;
 const lastActive = (i) => Math.max(isoTime(i.lastWatched), isoTime(i.added));
+/* Most recently watched first, by when you last moved each title on (or
+   added it), not when it was last edited: an import or a sync edits
+   everything at once, which would leave the order to chance. */
+const byWatched = (list) => [...list].sort((a, b) => lastActive(b) - lastActive(a) || b.updated.localeCompare(a.updated));
 function watchingGroup(item, d, now = Date.now()) {
   if (item.kind === "tv" && item.season === 1 && item.episode === 0) return "unstarted";
   if (item.kind === "tv" && d?.seasons && !nextEpisode(item, d)?.aired) return "caughtup";
@@ -166,10 +170,11 @@ function LongList({ items, render, leaving, step = 20 }) {
 function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSeeAll, onExplore, onMore, onBulk, onSettings }) {
   const watching = items.filter((i) => i.status === "watching");
   const pending = usePrefetchDetails(watching, tmdbKey, true);
-  // Order fixed while you're here (as on the list screens), so a card you
-  // tick doesn't jump under your finger. New ones go on top.
+  // Most recently watched first, the order fixed while you're here (as on
+  // the list screens), so a card you tick doesn't jump under your finger.
+  // New ones go on top.
   const orderRef = useRefB(null);
-  if (!orderRef.current) orderRef.current = byRecent(watching).map((i) => i.id);
+  if (!orderRef.current) orderRef.current = byWatched(watching).map((i) => i.id);
   const ordered = [...watching].sort((a, b) => orderRef.current.indexOf(a.id) - orderRef.current.indexOf(b.id));
   const now = Date.now();
   const dOf = (i) => cachedDetails(i.kind, i.tmdbId);
@@ -183,8 +188,8 @@ function WatchingView({ items, tmdbKey, onOpenItem, onOpenTile, onAdvance, onSee
   const caughtup = [...groups.caughtup].sort((a, b) => nextAt(a) - nextAt(b) || isoTime(dOf(b)?.lastDate) - isoTime(dOf(a)?.lastDate));
   const onhold = [...groups.onhold].sort((a, b) => lastActive(b) - lastActive(a));
   const watchlist = byRecent(items.filter((i) => i.status === "watchlist"));
-  const watched = byRecent(items.filter((i) => i.status === "watched"));
-  const seeds = byRecent(items.filter((i) => i.tmdbId && i.status !== "watchlist" && !(i.kind === "tv" && i.season === 1 && i.episode === 0))).slice(0, 2);
+  const watched = byWatched(items.filter((i) => i.status === "watched"));
+  const seeds = byWatched(items.filter((i) => i.tmdbId && i.status !== "watchlist" && !(i.kind === "tv" && i.season === 1 && i.episode === 0))).slice(0, 2);
   const lib = useLibraryIndex(items);
   // A tick that moves a row to another list (a movie or finished show to
   // Watched, a first episode out of Not Started) folds it away first.
