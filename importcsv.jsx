@@ -174,16 +174,20 @@ function csvRecords(rows) {
     const named = splitYear(at(r, "title").slice(0, 200));
     const title = named.title;
     const kindText = normHead(at(r, "kind"));
-    // Games and podcasts aren't tracked; an episode row whose title is the
-    // episode's (IMDb rates episodes one by one) can't be tied to its show.
-    if (!title || /game|podcast/.test(kindText) || (kindText.includes("episode") && !showTitles)) { skipped++; continue; }
-    const url = at(r, "url");
-    const tmdbUrl = url.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
     // "S02E05", "2x05" or "Season 2 Episode 5" in either column; else a
     // number in each ("Season 2" counts).
     const sxe = (at(r, "episode") + " " + at(r, "season")).match(/s(\d+)\s*e(\d+)|\b(\d+)x(\d+)\b|season\s*(\d+)\D{0,4}episode\s*(\d+)/i);
     const season = sxe ? toInt(sxe[1] || sxe[3] || sxe[5]) : numIn(at(r, "season"));
     const episode = sxe ? toInt(sxe[2] || sxe[4] || sxe[6]) : numIn(at(r, "episode"));
+    // An episode row with its season and episode numbers names the show
+    // (TV Time's watches and ratings); one without them names the episode
+    // itself (IMDb rates episodes one by one), so it can't be tied to its show.
+    const episodeRow = kindText.includes("episode");
+    const numbered = season > 0 && episode > 0;
+    // Games and podcasts aren't tracked.
+    if (!title || /game|podcast/.test(kindText) || (episodeRow && !showTitles && !numbered)) { skipped++; continue; }
+    const url = at(r, "url");
+    const tmdbUrl = url.match(/themoviedb\.org\/(movie|tv)\/(\d+)/);
     let kind = csvKind(kindText) || (tmdbUrl && tmdbUrl[1]) || null;
     const caughtUp = csvCaughtUp(at(r, "status"));
     if (!kind && (showTitles || episode > 0 || caughtUp)) kind = "tv";
@@ -194,7 +198,8 @@ function csvRecords(rows) {
       title, kind, year,
       tmdbId: toInt(at(r, "tmdb")) || (tmdbUrl ? toInt(tmdbUrl[2]) : 0) || null,
       imdbId: ((at(r, "imdb") + " " + url).match(/tt\d{5,}/) || [""])[0],
-      raw: parseFloat(at(r, "rating").replace(",", ".")) || 0,
+      // An episode's rating isn't the show's.
+      raw: episodeRow ? 0 : parseFloat(at(r, "rating").replace(",", ".")) || 0,
       status: csvStatus(at(r, "status")),
       caughtUp,
       season: season > 0 ? season : 0,
