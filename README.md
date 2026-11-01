@@ -67,7 +67,7 @@ Then **Settings → Account → Sign in**. Sign-in uses a password rather than a
 | File | What it holds |
 | --- | --- |
 | `index.html` | Theme applied before first paint, the film-strip loading screen and its cross-fade into the app, script tags. If a script fails, the error appears on the loading screen. |
-| `styles.css` | Colour tokens (dark and light), spring easings, and every animation. |
+| `styles.css` | Colour tokens (dark and light), layout tokens (`--page-max`, the side gutters `--pad-l`/`--pad-r`, which clear the notch in landscape and widen on iPad), the responsive grids (`.tvt-tiles`, `.tvt-awards`, `.tvt-hero`), the font (Geist), spring easings, and every animation. |
 | `components.jsx` | Shared building blocks: `Card`, `SegToggle`, button styles, `ScreenTitle`, `SectionHeader`, `ProgressBar`, `ModalFrame` (sheets and dialogs), `showMenu` (action sheets), `FoldSection` and `useFold` (fold-away sections), `Picker` (a dropdown), `PullToRefresh`, `showToast`, `askConfirm`, `AnimatedRow`, `Collapse`, icons. |
 | `tmdb.jsx` | TMDB search, image URLs, title details (cached on the device) with where to watch them (`providersFor`, `setWatchRegion`), the Explore lists, and the episode maths (`nextEpisode`, `episodesWatched`, `airedEpisodes`, `latestAired`). |
 | `wikidata.jsx` | Wikidata: the SPARQL query (`wikidataQuery`), the facts it keeps (`compactWikidata`, cached on the device), `useWikidata`, and the title sheet's Did You Know section (`WikidataSection`). |
@@ -161,7 +161,13 @@ The profile picture is cropped square and shrunk to 256px on the device, then ke
 
 ### How watch time is counted
 
-A watched movie counts its TMDB runtime. A show counts the episodes up to your progress (season and episode), or every aired episode once it's in Watched, times its typical episode length. Watchlist titles count for nothing. Titles without a TMDB runtime (typed in by hand, or missing on TMDB) are estimated at 45 minutes an episode or 1h 50m a movie, and Profile says how many are. Each title's time goes to its first genre for *Top Genres*.
+A watched movie counts its TMDB runtime. A show counts the episodes up to your progress (season and episode), never more than TMDB says have aired, or every aired episode once it's in Watched, times its typical episode length. Watchlist titles, and shows in Not Started, count for nothing, and the "across N titles" line counts only titles with time watched. Rewatches count on top: the viewings beyond the first in the watch history, or the title's own count (`rewatches`, plus a rewatch under way), whichever is more, so a rewatch of something whose first watch was never logged (imported without dates, or marked caught up) still counts, and nothing counts twice. Titles without a TMDB runtime (typed in by hand, or missing on TMDB) are estimated at 45 minutes an episode or 1h 50m a movie, and Profile says how many are. Each title's time goes to its first genre for *Top Genres*.
+
+## Layout and type
+
+The app is drawn for iPhone first and widens on iPad: the reading column is 640px on a phone, 780px from 700px wide and 880px from 1100px, with 24px gutters on iPad. Stat tiles go from two across to four, awards from four to eight, and Up Next's big card from 16:10 to 21:9 (3:1 on a phone in landscape). The gutters are `max(gutter, safe-area inset)`, so in landscape nothing sits under the notch or Dynamic Island. Text is Geist (Google Fonts, cached by the service worker), with San Francisco standing in until it loads.
+
+The footer of Profile and **Settings → About** carry the maker's tag (`MAKER_TAG` in `app.jsx`, drawn by `MakerTag`).
 
 ## Adding features
 

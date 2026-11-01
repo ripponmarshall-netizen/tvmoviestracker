@@ -360,7 +360,7 @@ function TraktSettings({ items, onImport }) {
       {code ? (
         <div className="tvt-pop" style={{ background: "var(--bg-3)", borderRadius: 14, padding: "12px 14px", textAlign: "center", marginTop: 4 }}>
           <div style={{ fontSize: 13, color: "var(--ink-dim)" }}>Go to Trakt and enter</div>
-          <div className="mono" style={{ fontSize: 26, fontWeight: 700, letterSpacing: "0.12em", margin: "6px 0 10px" }}>{code.user_code}</div>
+          <div className="mono" style={{ fontSize: 22, fontWeight: 700, letterSpacing: "0.12em", margin: "6px 0 10px" }}>{code.user_code}</div>
           <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
             <a href={code.verification_url || "https://trakt.tv/activate"} target="_blank" rel="noopener noreferrer" style={{ ...accentBtn(), textDecoration: "none" }}>Open Trakt</a>
             <button type="button" onClick={copyCode} style={ghostBtn()}>Copy Code</button>

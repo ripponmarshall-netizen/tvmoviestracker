@@ -211,7 +211,7 @@ function ToastHost() {
   return (
     <div aria-live="polite" className="tvt-toast-wrap" style={{
       position: "fixed", left: 0, right: 0,
-      display: "flex", justifyContent: "center", zIndex: 90, pointerEvents: "none", padding: "0 16px",
+      display: "flex", justifyContent: "center", zIndex: 90, pointerEvents: "none", padding: "0 var(--pad-r) 0 var(--pad-l)",
     }}>
       <div key={toast.id} className={"tvt-toast" + (toast.leaving ? " is-leaving" : "")} style={{
         background: "var(--surface-translucent)",
@@ -262,7 +262,7 @@ function ConfirmDialog({ title, body, confirmLabel, danger, onDone }) {
   const answer = (ok) => { resultRef.current = ok; close(); };
   return (
     <ModalFrame dismiss={{ ref, closing, close: () => answer(false) }} zIndex={95} maxWidth={380} role="alertdialog" label={title}>
-      <div style={{ fontSize: 17, fontWeight: 600 }}>{title}</div>
+      <div style={{ fontSize: 16, fontWeight: 600 }}>{title}</div>
       {body && <div style={{ fontSize: 13.5, color: "var(--ink-dim)", lineHeight: 1.5, marginTop: 6 }}>{body}</div>}
       <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
         <button type="button" onClick={() => answer(false)} style={ghostBtn()}>Cancel</button>
@@ -322,13 +322,13 @@ function ActionSheet({ title, sub, actions = [], onDone }) {
           }}>
             {a.icon && <span aria-hidden style={{ display: "inline-flex", width: 22, justifyContent: "center", color: a.danger ? "var(--danger)" : "var(--accent)" }}>{a.icon}</span>}
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: "block", fontSize: 16 }}>{a.label}</span>
+              <span style={{ display: "block", fontSize: 15 }}>{a.label}</span>
               {a.sub && <span style={{ display: "block", fontSize: 12.5, color: "var(--ink-dim)", marginTop: 2, lineHeight: 1.35 }}>{a.sub}</span>}
             </span>
           </button>
         ))}
       </div>
-      <button type="button" onClick={close} style={{ ...ghostBtn(), width: "100%", marginTop: 10, padding: 14, borderRadius: 16, fontSize: 16, fontWeight: 600 }}>Cancel</button>
+      <button type="button" onClick={close} style={{ ...ghostBtn(), width: "100%", marginTop: 10, padding: 14, borderRadius: 16, fontSize: 15, fontWeight: 600 }}>Cancel</button>
     </ModalFrame>
   );
 }
@@ -423,7 +423,7 @@ function FoldSection({ id, title, count, note, defaultOpen = false, onMenu, menu
           flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, padding: "6px 4px",
           background: "none", border: "none", textAlign: "left", color: "inherit", font: "inherit", cursor: "pointer",
         }}>
-          <span style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
+          <span style={{ fontSize: 19, fontWeight: 700, letterSpacing: "-0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
           {count != null && <span key={count} className="mono tvt-pop" style={{ fontSize: 13, color: "var(--ink-faint)" }}>{count}</span>}
           <span style={{ flex: 1 }} />
           <FoldChevron open={open} />
@@ -445,7 +445,7 @@ function Picker({ label, value, options, onChange, style }) {
   return (
     <div className="tvt-picker" style={{ position: "relative", background: "var(--bg-2)", borderRadius: 14, padding: "8px 34px 9px 12px", minWidth: 0, ...style }}>
       <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>{label}</div>
-      <div key={String(value)} className="mono tvt-pop" style={{ fontSize: 17, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cur ? cur.short ?? cur.l : String(value)}</div>
+      <div key={String(value)} className="mono tvt-pop" style={{ fontSize: 16, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cur ? cur.short ?? cur.l : String(value)}</div>
       <span aria-hidden style={{ position: "absolute", right: 12, top: "50%", marginTop: -7, display: "inline-flex", color: "var(--ink-dim)" }}>
         <ChevronIcon dir="down" size={14} />
       </span>
@@ -467,11 +467,11 @@ function ScreenTitle({ title, detail, back, action }) {
       {back && (
         <button type="button" onClick={back.onClick} style={{
           display: "inline-flex", alignItems: "center", gap: 2, margin: "0 0 2px -6px", padding: "6px 8px 6px 2px",
-          background: "none", border: "none", color: "var(--accent)", fontSize: 16, cursor: "pointer",
+          background: "none", border: "none", color: "var(--accent)", fontSize: 15, cursor: "pointer",
         }}><ChevronIcon dir="left" size={18} />{back.label}</button>
       )}
       <div style={{ display: "flex", alignItems: action ? "center" : "baseline", justifyContent: "space-between", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: "-0.025em" }}>{title}</h2>
+        <h2 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: "-0.025em" }}>{title}</h2>
         {detail != null && <span className="mono" style={{ fontSize: 13, color: "var(--ink-faint)" }}>{detail}</span>}
         {action && (
           <button type="button" onClick={action.onClick} aria-label={action.label} title={action.label} style={{ ...iconBtn(38), color: "var(--ink-dim)" }}>
@@ -490,13 +490,13 @@ function SectionHeader({ title, eyebrow, detail, action }) {
     <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, margin: "0 4px 10px" }}>
       <div style={{ minWidth: 0 }}>
         {eyebrow && <div style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 1 }}>{eyebrow}</div>}
-        <h3 style={{ margin: 0, fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</h3>
+        <h3 style={{ margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</h3>
       </div>
       {detail != null && <span className="mono" style={{ fontSize: 13, color: "var(--ink-faint)", flexShrink: 0, paddingBottom: 3 }}>{detail}</span>}
       {action && (
         <button type="button" onClick={action.onClick} style={{
           flexShrink: 0, background: "none", border: "none", padding: "6px 0 3px 12px",
-          color: "var(--accent)", fontSize: 15, cursor: "pointer",
+          color: "var(--accent)", fontSize: 14, cursor: "pointer",
         }}>{action.label}</button>
       )}
     </div>
@@ -552,7 +552,7 @@ function ModalHead({ eyebrow, title, onClose, lead }) {
       {lead}
       <div style={{ minWidth: 0, flex: 1 }}>
         {eyebrow && <div className="label">{eyebrow}</div>}
-        <div style={{ fontSize: eyebrow ? 17 : 18, fontWeight: 600, marginTop: eyebrow ? 2 : 0, overflowWrap: "anywhere" }}>{title}</div>
+        <div style={{ fontSize: eyebrow ? 16 : 17, fontWeight: 600, marginTop: eyebrow ? 2 : 0, overflowWrap: "anywhere" }}>{title}</div>
       </div>
       <button type="button" onClick={onClose} style={{ ...iconBtn(), color: "var(--ink-dim)" }} aria-label="Close"><XIcon /></button>
     </div>

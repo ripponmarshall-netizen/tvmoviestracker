@@ -10,11 +10,18 @@ const EST_MOVIE_MIN = 110;
 /* watchStats — totals over the library. A watched movie counts its
    runtime. A show counts the episodes up to your progress, or, once it's
    in Watched, every episode aired. Watchlist titles count for nothing.
-   `repeats` (item id → times rewatched, from the watch history) adds each
-   rewatched episode or movie viewing on top. */
+   A show you're watching never counts more episodes than have aired (an
+   import's absolute episode numbers can run past TMDB's seasons).
+   Rewatches add each episode or movie viewing on top: `repeats` (item id →
+   viewings beyond the first, from the watch history), or the item's own
+   count (`rewatches` and a rewatch under way), whichever is more. The
+   item's count catches rewatches whose first watch was never logged (a
+   title imported without dates, or marked caught up), where the history
+   holds only one date per episode; taking the larger never counts one
+   viewing twice. */
 function watchStats(items, repeats = new Map()) {
   const s = {
-    titles: items.length, tvMin: 0, movieMin: 0, episodes: 0, movies: 0, rewatched: 0, rewatchMin: 0,
+    library: items.length, titles: 0, tvMin: 0, movieMin: 0, episodes: 0, movies: 0, rewatched: 0, rewatchMin: 0,
     showsDone: 0, rated: 0, ratingSum: 0, estimated: 0, genreTime: new Map(), genres: new Set(),
     anime: 0, animeMin: 0, // titles TMDB says are anime, and their time
   };
@@ -22,20 +29,24 @@ function watchStats(items, repeats = new Map()) {
     if (it.rating) { s.rated++; s.ratingSum += it.rating; }
     if (it.status === "watchlist") continue;
     const d = it.tmdbId ? cachedDetails(it.kind, it.tmdbId) : null;
-    let min = 0;
+    let min = 0, again = 0;
     if (it.kind === "movie") {
       if (it.status !== "watched") continue;
       s.movies++;
       min = d?.rt || EST_MOVIE_MIN;
       s.movieMin += min;
+      again = Math.max(repeats.get(it.id) || 0, it.rewatches || 0);
     } else {
-      const eps = it.status === "watched" ? Math.max(airedEpisodes(d), episodesWatched(it, d)) : episodesWatched(it, d);
+      const aired = airedEpisodes(d);
+      const seen = episodesWatched(it, d);
+      const eps = it.status === "watched" ? Math.max(aired, seen) : aired ? Math.min(seen, aired) : seen;
       if (it.status === "watched") s.showsDone++;
       s.episodes += eps;
       min = eps * (d?.rt || EST_EPISODE_MIN);
       s.tvMin += min;
+      const passes = (it.rewatches || 0) * eps + (it.rewatch ? episodesWatched({ ...it, ...it.rewatch }, d) : 0);
+      again = Math.max(repeats.get(it.id) || 0, passes);
     }
-    const again = repeats.get(it.id) || 0;
     if (again) {
       const extra = again * (d?.rt || (it.kind === "movie" ? EST_MOVIE_MIN : EST_EPISODE_MIN));
       if (it.kind === "movie") s.movieMin += extra; else s.tvMin += extra;
@@ -43,12 +54,16 @@ function watchStats(items, repeats = new Map()) {
       s.rewatchMin += extra;
       min += extra;
     }
-    if (min && !d?.rt) s.estimated++;
-    if (min && d?.anime) { s.anime++; s.animeMin += min; }
+    // Only titles with time watched count as watched (not a show in Not
+    // Started, nothing ticked yet).
+    if (!min) continue;
+    s.titles++;
+    if (!d?.rt) s.estimated++;
+    if (d?.anime) { s.anime++; s.animeMin += min; }
     for (const g of d?.genres || []) s.genres.add(g);
     // Each title's time goes to its first (main) genre, so they add up.
     const g = d?.genres?.[0];
-    if (min && g) s.genreTime.set(g, (s.genreTime.get(g) || 0) + min);
+    if (g) s.genreTime.set(g, (s.genreTime.get(g) || 0) + min);
   }
   s.minutes = s.tvMin + s.movieMin;
   return s;
@@ -57,7 +72,7 @@ function watchStats(items, repeats = new Map()) {
 /* Awards, in the order you're likely to earn them. `of` reads the stat it
    tracks; time awards count minutes and show hours. Add one here. */
 const BADGES = [
-  { id: "first", icon: "🎬", hue: 25, name: "Opening Night", desc: "Add your first title", goal: 1, of: (s) => s.titles },
+  { id: "first", icon: "🎬", hue: 25, name: "Opening Night", desc: "Add your first title", goal: 1, of: (s) => s.library },
   { id: "pilot", icon: "📺", hue: 250, name: "Pilot", desc: "Watch an episode", goal: 1, of: (s) => s.episodes },
   { id: "movie1", icon: "🍿", hue: 300, name: "Movie Night", desc: "Watch a movie", goal: 1, of: (s) => s.movies },
   { id: "finish1", icon: "🏁", hue: 150, name: "Finisher", desc: "Finish a show", goal: 1, of: (s) => s.showsDone },
@@ -90,13 +105,13 @@ function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, usernam
   const split = (c) => [c.tv && plural(c.tv, "show"), c.movie && plural(c.movie, "movie")].filter(Boolean).join(" · ") || "Empty";
 
   return (
-    <main className="tvt-view tvt-page" style={{ padding: "8px 16px calc(120px + var(--safe-bottom))" }}>
+    <main className="tvt-view tvt-page" style={{ padding: "8px var(--pad-r) calc(120px + var(--safe-bottom)) var(--pad-l)" }}>
       <ScreenTitle title="Profile" action={{ icon: <GearIcon size={19} />, label: "Settings", onClick: onSettings }} />
       <ProfileHeader items={items} session={session} sync={sync} avatar={avatar} setAvatar={setAvatar} username={username} onEdit={onEditProfile} />
 
       <SectionHeader title="Watch Time" detail={pending ? "Updating…" : null} />
       <WatchTimeCard s={s} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 26 }}>
+      <div className="tvt-tiles" style={{ marginBottom: 26 }}>
         <StatTile label="Episodes" value={s.episodes.toLocaleString("en-GB")} color="var(--tv)" icon={<PlayIcon size={16} />} />
         <StatTile label="Movies" value={s.movies.toLocaleString("en-GB")} color="var(--movie)" icon={<CheckCircleIcon size={16} />} />
         <StatTile label="Shows finished" value={s.showsDone} color="var(--ok)" icon={<CheckIcon size={15} />} />
@@ -139,9 +154,10 @@ function ProfileView({ items, tmdbKey, session, sync, avatar, setAvatar, usernam
       ]} />
 
       <HowCounted s={s} />
-      <div className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", textAlign: "center", marginTop: 18 }}>
-        {APP_NAME} v{APP_VERSION}
-      </div>
+      <footer style={{ textAlign: "center", marginTop: 26, paddingTop: 18, borderTop: "1px solid var(--line-soft)" }}>
+        <MakerTag />
+        <div className="mono" style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 10 }}>{APP_NAME} v{APP_VERSION}</div>
+      </footer>
     </main>
   );
 }
@@ -180,9 +196,9 @@ function ProfileHeader({ items, session, sync, avatar, setAvatar, username, onEd
       <div style={{ position: "relative", marginTop: 12 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
           {username ? (
-            <div key={username} className="tvt-pop" style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-0.02em", overflowWrap: "anywhere", minWidth: 0 }}>{username}</div>
+            <div key={username} className="tvt-pop" style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", overflowWrap: "anywhere", minWidth: 0 }}>{username}</div>
           ) : (
-            <button type="button" onClick={onEdit} style={{ background: "none", border: "none", padding: "2px 6px", color: "var(--accent)", fontSize: 19, fontWeight: 600, cursor: "pointer" }}>
+            <button type="button" onClick={onEdit} style={{ background: "none", border: "none", padding: "2px 6px", color: "var(--accent)", fontSize: 17, fontWeight: 600, cursor: "pointer" }}>
               Set a username
             </button>
           )}
@@ -194,7 +210,7 @@ function ProfileHeader({ items, session, sync, avatar, setAvatar, username, onEd
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", margin: "16px 0 14px", padding: "12px 0", borderTop: "1px solid var(--line-soft)", borderBottom: "1px solid var(--line-soft)" }}>
         {tally.map((t, i) => (
           <div key={t.l} style={{ borderLeft: i ? "1px solid var(--line-soft)" : "none" }}>
-            <div key={t.n} className="mono tvt-pop" style={{ fontSize: 21, fontWeight: 700 }}>{t.n.toLocaleString("en-GB")}</div>
+            <div key={t.n} className="mono tvt-pop" style={{ fontSize: 19, fontWeight: 700 }}>{t.n.toLocaleString("en-GB")}</div>
             <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 1 }}>{t.l}</div>
           </div>
         ))}
@@ -247,7 +263,7 @@ function AwardsSection({ s }) {
   const sorted = [...BADGES].sort((a, b) => (frac(b) >= 1) - (frac(a) >= 1) || frac(b) - frac(a));
   const earned = BADGES.filter((b) => frac(b) >= 1).length;
   const grid = (list) => (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px 4px" }}>
+    <div className="tvt-awards">
       {list.map((b) => <BadgeMedal key={b.id} badge={b} value={b.of(s)} />)}
     </div>
   );
@@ -283,9 +299,9 @@ function HowCounted({ s }) {
       </button>
       <Collapse open={open}>
         <div style={{ fontSize: 12.5, color: "var(--ink-faint)", lineHeight: 1.5, paddingBottom: 4 }}>
-          Times use TMDB's runtimes. A show counts the episodes up to your progress, or all of them once it's in Watched;
-          a show in Not Started counts nothing until you tick an episode or mark it caught up. Watchlist titles don't count.
-          Rewatches in your watch history (each episode or movie watched again) count on top{s.rewatched > 0 ? `: ${s.rewatched.toLocaleString("en-GB")} so far, ${fmtRuntime(s.rewatchMin)}` : ""}.
+          Times use TMDB's runtimes. A show counts the episodes up to your progress (never more than have aired), or all of them once
+          it's in Watched; a show in Not Started counts nothing until you tick an episode or mark it caught up. Watchlist titles don't count.
+          Rewatches (each episode or movie watched again, from your watch history or Rewatch and Watched It Again) count on top{s.rewatched > 0 ? `: ${s.rewatched.toLocaleString("en-GB")} so far, ${fmtRuntime(s.rewatchMin)}` : ""}.
           {s.estimated > 0 && ` ${plural(s.estimated, "title")} without a runtime ${s.estimated === 1 ? "is" : "are"} estimated at 45 min an episode or 1h 50m a movie.`}
         </div>
       </Collapse>
@@ -403,8 +419,8 @@ function WatchTimeCard({ s }) {
       <div aria-label={`${fmtRuntime(s.minutes) || "0m"} watched`} style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 2 }}>
         {parts.map(([n, u]) => (
           <span key={u} aria-hidden>
-            <span key={n} className="mono tvt-pop" style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-0.03em" }}>{n}</span>
-            <span style={{ fontSize: 18, fontWeight: 600, color: "var(--ink-dim)", marginLeft: 2 }}>{u}</span>
+            <span key={n} className="mono tvt-pop" style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-0.03em" }}>{n}</span>
+            <span style={{ fontSize: 15, fontWeight: 600, color: "var(--ink-dim)", marginLeft: 2 }}>{u}</span>
           </span>
         ))}
       </div>
@@ -421,7 +437,7 @@ function WatchTimeCard({ s }) {
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--ink-dim)" }}>
               <span style={{ width: 8, height: 8, borderRadius: 999, background: x.c }} />{x.l}
             </div>
-            <div className="mono" style={{ fontSize: 17, fontWeight: 700, marginTop: 2 }}>{fmtRuntime(x.min) || "0m"}</div>
+            <div className="mono" style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{fmtRuntime(x.min) || "0m"}</div>
             <div style={{ fontSize: 12, color: "var(--ink-faint)" }}>{x.n}</div>
           </div>
         ))}
@@ -436,7 +452,7 @@ function StatTile({ label, value, color, icon }) {
       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--ink-dim)" }}>
         <span style={{ color, display: "inline-flex" }}>{icon}</span>{label}
       </div>
-      <div key={value} className="mono tvt-pop" style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 4 }}>{value}</div>
+      <div key={value} className="mono tvt-pop" style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 4 }}>{value}</div>
     </div>
   );
 }
@@ -495,10 +511,10 @@ function ListRows({ rows }) {
           {/* The divider starts after the icon, as in iOS lists. */}
           <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, padding: r.sub ? "11px 0" : "14px 0", borderTop: i ? "1px solid var(--line-soft)" : "none" }}>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: "block", fontSize: 16 }}>{r.label}</span>
+              <span style={{ display: "block", fontSize: 15 }}>{r.label}</span>
               {r.sub && <span style={{ display: "block", fontSize: 12.5, color: "var(--ink-dim)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.sub}</span>}
             </span>
-            {r.detail != null && <span className="mono" style={{ fontSize: 15, color: "var(--ink-dim)" }}>{r.detail}</span>}
+            {r.detail != null && <span className="mono" style={{ fontSize: 14, color: "var(--ink-dim)" }}>{r.detail}</span>}
             <span style={{ color: "var(--ink-faint)", display: "inline-flex" }}><ChevronIcon size={13} /></span>
           </span>
         </button>
