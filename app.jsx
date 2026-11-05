@@ -3,7 +3,7 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 const APP_NAME = "Nostalgiaa";
-const APP_VERSION = "1.12.0";
+const APP_VERSION = "1.12.1";
 // The maker's tag, in the footer of Profile and in Settings → About.
 const MAKER_TAG = "Workflow Coaching and Optimization";
 

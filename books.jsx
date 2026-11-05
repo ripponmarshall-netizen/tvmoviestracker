@@ -590,16 +590,27 @@ function PageSection({ book, focus, onPatch, onFinish }) {
   );
 }
 
-/* Your note, saved when you leave the field or close the sheet. */
+/* Your note, saved when you leave the field or close the sheet. Only
+   what you typed is saved: a note that changes underneath (synced from
+   another device while the sheet is open) shows here and isn't written
+   back over with the copy the sheet opened with. */
 function BookNote({ book, onPatch }) {
   const [note, setNote] = useStateBk(book.note);
+  const dirty = useRefBk(false);
   const latest = useRefBk({ note, book });
   latest.current = { note, book };
-  const save = () => { const { note: n, book: b } = latest.current; if (n !== b.note) onPatch(b.id, { note: n }); };
+  useEffectBk(() => { if (!dirty.current) setNote(book.note); }, [book.note]);
+  const save = () => {
+    const { note: n, book: b } = latest.current;
+    if (!dirty.current) return;
+    dirty.current = false;
+    if (n !== b.note) onPatch(b.id, { note: n });
+  };
   useEffectBk(() => save, []);
+  const edit = (e) => { dirty.current = true; setNote(e.target.value.slice(0, 2000)); };
   return (
     <DetailSection title="Your Note">
-      <textarea aria-label="Your note" rows={3} value={note} onChange={(e) => setNote(e.target.value.slice(0, 2000))} onBlur={save}
+      <textarea aria-label="Your note" rows={3} value={note} onChange={edit} onBlur={save}
         placeholder="Who recommended it, favourite lines, where you left off…" style={{ ...fieldStyle(), resize: "vertical", lineHeight: 1.4, display: "block" }} />
     </DetailSection>
   );
